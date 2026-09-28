@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.pulse/*
+!.pulse/config.ts
+src/assets.generated.ts
+.env*
+!.env.example
+test-results/

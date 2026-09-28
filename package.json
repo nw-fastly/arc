@@ -1,0 +1,27 @@
+{
+  "name": "arc-playground",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.14.0 || ^24.0.0"
+  },
+  "scripts": {
+    "assets": "node scripts/embed-assets.mjs",
+    "doctor": "npm run assets && pulse doctor",
+    "dev": "npm run assets && pulse dev",
+    "test": "npm run assets && pulse test",
+    "build": "npm run assets && pulse build",
+    "typecheck": "tsc --noEmit",
+    "test:native": "node tests/native-smoke.mjs"
+  },
+  "dependencies": {
+    "@pulse-compute/pulse": "1.0.0-beta.5",
+    "@pulse-compute/runtime": "1.0.0-beta.5"
+  },
+  "devDependencies": {
+    "@pulse-compute/cli": "1.0.0-beta.5",
+    "@pulse-compute/provider-fastly": "1.0.0-beta.5",
+    "typescript": "5.9.3"
+  }
+}
