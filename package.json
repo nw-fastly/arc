@@ -12,6 +12,7 @@
     "dev": "npm run assets && pulse dev",
     "test": "npm run assets && pulse test",
     "build": "npm run assets && pulse build",
+    "deploy": "fastly compute publish",
     "typecheck": "tsc --noEmit",
     "test:native": "node tests/native-smoke.mjs"
   },

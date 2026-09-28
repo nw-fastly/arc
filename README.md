@@ -51,7 +51,7 @@ Pulse packages are pinned to the published `1.0.0-beta.5` release and recorded i
    | KV Store | `arc_state` | Initially empty; populated by Admin |
    | Backend | `arc_backend` | Your ARC endpoint origin |
 
-5. Rebuild after changing the backend mapping. Deploy the generated `dist` package using your normal Fastly Compute service workflow. Build does not provision resources or deploy a service.
+5. From the project root, run `npm run deploy` after installing and authenticating the Fastly CLI. The root `fastly.toml` runs the Pulse Native build, stages `dist/bin/main.wasm` as `bin/main.wasm`, and `fastly compute publish` builds and deploys it. Set `service_id` in `fastly.toml` to target an existing Compute service; otherwise the CLI can guide you through creating one. The manifest does not provision or link ARC resources. `npm run build` alone never deploys.
 6. Open `/admin`, unlock with your deployed admin password, add the actual model IDs and an ARC virtual key, then add users assigned to that key. Return to chat and send a small prompt. Confirm the request and model in ARC's own logs.
 
 Do not populate deployment resources with the local preview key or illustrative model IDs. `dev.config`, `dev.secrets`, and `dev.kv` are only local fixture inputs. On an empty deployment, the UI guides you to Admin. Missing admin secrets deny access; missing ARC URL returns a setup error. A failed live request never becomes a simulated response.

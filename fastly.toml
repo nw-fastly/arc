@@ -1,0 +1,9 @@
+manifest_version = 3
+name = "arc-playground"
+description = "ARC chat demo on Pulse Native"
+authors = []
+language = "other"
+
+[scripts]
+# Fastly packages bin/main.wasm from this directory. Pulse builds it under dist/.
+build = "npm run build && mkdir -p bin && cp dist/bin/main.wasm bin/main.wasm"
