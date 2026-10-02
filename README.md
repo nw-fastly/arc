@@ -32,6 +32,8 @@ Open `http://127.0.0.1:8787`, then `/admin` with **`local-admin-only`**. Local f
 
 ## Connect ARC and deploy
 
+For reproducible infrastructure setup, use [Terraform](terraform/README.md). It creates and links the service resources below; `npm run deploy` publishes the app separately.
+
 1. Configure provider connections in Fastly ARC. This app discovers existing providers, models, and connections; it does not create them. Choose a model supporting the gateway's OpenAI-compatible chat-completions API.
 2. Link these resources to your Compute service. Names must match `.pulse/config.ts`:
 

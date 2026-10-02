@@ -68,3 +68,19 @@ General key metadata editing/deletion remain pass 1 follow-ups. Activity is cove
 No live ARC account request, deployment, provisioning, merge, or repository settings change. Supplied private API documents were used locally and are not committed. Policy behavior is verified against controlled responses matching those documents, not account-specific entitlements.
 
 KV remains deliberately eventually consistent and last-write-wins for the demo. The new policy routes do not write KV. Key mutation outage behavior from pass 1 has not been fault-injected against real Fastly storage.
+
+## Terraform infrastructure
+
+Added a separate infrastructure root with pinned Fastly provider 9.6.0, Compute
+service, TLS backends, linked Config/Secret/KV Stores and `ARC_MODE=live`.
+Terraform leaves service versions inactive; the existing CLI deploy owns the
+package and activation. Secret values and app state are not Terraform inputs.
+
+`terraform fmt -check` passed. The provider archive was downloaded and its SHA256
+verified against the registry metadata; the lockfile includes official release
+ZIP checksums for other platforms. Provider initialization via a local mirror
+succeeded after the normal registry checksum fetch timed out. Local
+`terraform validate` could not load the provider because this execution
+environment forbids its Unix socket (`operation not permitted`). A credential-free
+GitHub workflow runs fmt, init and validate. No account plan, apply or deployment
+was run; DNS and downstream TLS are explicitly outside this configuration.

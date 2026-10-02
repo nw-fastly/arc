@@ -7,3 +7,13 @@ src/assets.generated.ts
 .env*
 !.env.example
 test-results/
+
+# Terraform local state, credentials and plans
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
