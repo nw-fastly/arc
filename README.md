@@ -10,7 +10,7 @@ A small chat demo built with **Pulse Native on Fastly Compute**. ARC owns provid
 - Virtual credentials remain server-side. Neither public nor authenticated admin responses return their values.
 - The same native Compute service serves the UI and API.
 
-**Release preparation:** Pass 2 adds the policy editor and PATCH/PUT routes ahead of the next Pulse release. Packages remain pinned to `1.0.0-beta.5`; its public TypeScript fetch signature rejects these two verbs. This draft must receive the synchronized Pulse dependency update and pass all gates before merge. General key metadata editing and deletion remain pass 1 follow-ups; Activity remains pass 3.
+**Pulse compatibility:** Packages remain pinned to `1.0.0-beta.5`. A narrow Native-only declaration in `src/pulse-native-fetch.d.ts` types the schema-backed PATCH/PUT requests already verified by the Native harness and Viceroy. Remove it when the upstream fetch types include these verbs. General key metadata editing and deletion remain pass 1 follow-ups; Activity remains pass 3.
 
 ![ARC chat playground](docs/screenshots/chat.png)
 
@@ -120,4 +120,4 @@ npm run build
 VICEROY_BIN=/path/to/viceroy npm run test:native
 ```
 
-Pulse packages remain pinned to the published `1.0.0-beta.5` release. `public/` is frontend source; `scripts/embed-assets.mjs` generates static routes. Edit source assets, not generated files. See [validation](docs/validation.md) for executed checks and the pending release gate.
+Pulse packages remain pinned to the published `1.0.0-beta.5` release. `public/` is frontend source; `scripts/embed-assets.mjs` generates static routes. Edit source assets, not generated files. See [validation](docs/validation.md) for executed checks and the Native typing compatibility boundary.

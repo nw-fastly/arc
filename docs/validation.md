@@ -19,11 +19,11 @@ Implemented an authenticated policy router and a two-section admin editor:
 - **Chromium policy checks passed** against the authoring fixture server: unchanged fields omitted, explicit removal, UTC conversion with browser timezone America/Denver, spend toggle, firewall disabling, ordered failover, missing-connection preservation, failed save isolation, duplicate target rejection, full removal, unavailable feature, and 390px layout. No page errors or horizontal overflow. Updated policy screenshots are committed.
 - JavaScript syntax and whitespace checks passed.
 
-### Remaining release gate
+### Native fetch typing compatibility
 
-The pinned published `@pulse-compute/runtime@1.0.0-beta.5` **TypeScript declaration** accepts only `GET | HEAD | POST` in `PulseFetchInitBase.method`. `npm run typecheck` therefore reports two TS2322 errors at the intentional PATCH and PUT calls in `src/policies.ts`. No casts, declaration overrides, dependency patches, or suppressed checks hide them.
+The pinned `@pulse-compute/runtime@1.0.0-beta.5` fetch declaration only lists `GET | HEAD | POST`, although the Native compiler and generated Fastly artifact execute PATCH/PUT successfully. `src/pulse-native-fetch.d.ts` adds an overload limited to schema-backed JSON PATCH/PUT requests. It retains the upstream header, timeout, body-exclusion and effect return types; the original fetch signature remains available. There are no suppressed errors, runtime casts, dependency patches or disabled checks.
 
-Direct Native testing refined the earlier pass 1 assessment: the generated Fastly artifact does execute PATCH/PUT correctly; the outstanding issue demonstrated here is the published typing contract. The user requested preparation for the forthcoming Pulse release. Keep this PR draft until all direct Pulse packages and the lockfile are updated together and typecheck, harness, build, and Viceroy are rerun. Existing CI remains enabled and typecheck will stay red until that dependency update.
+`npm run typecheck` passes with this compatibility declaration. This is specific to ARC's Native target, not a claim of JavaScript runtime support. Remove the declaration when the upstream fetch types support these verbs, updating the direct Pulse packages and lockfile together and rerunning typecheck, harness, build and Viceroy.
 
 ### Reproduce
 
