@@ -1,6 +1,7 @@
 import { Pulse } from '@pulse-compute/pulse'
 import type { Users, Credentials, Credential, KeyResult, KeyPage, KeyView, KeyInput, PageInput, Providers, Connections, PublicUser, Key, Chat } from './schemas.js'
 import assets from './assets.generated.js'
+import policies from './policies.js'
 const app = new Pulse({ auto: true })
 app.mount('/', assets)
 app.get('/health', async (ctx) => ctx.text('ok'))
@@ -37,6 +38,7 @@ app.use('/api/admin/*', async (ctx, next) => {
   if (!password || authorization !== `Bearer ${password}`) return ctx.json({ error: 'Admin password required.' }, { status: 401, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
   return next()
 })
+app.mount('/api/admin/keys', policies)
 app.get('/api/admin/users', async (ctx) => {
   const stored = await ctx.kv<Users>('state').get('users-v2')
   return ctx.json(stored === undefined ? { users: [] } : stored, { schema: 'arc.Users', headers: { 'cache-control': 'no-store' } })
@@ -67,13 +69,13 @@ app.put('/api/admin/users', async (ctx) => {
 })
 app.get('/api/admin/catalog', async (ctx) => {
   const mode = await ctx.config.get('ARC_MODE')
-  if (mode === 'preview') return ctx.json({ providers: [{ id: 'preview', display_name: 'Preview', models: [{ id: 'demo-fast', display_name: 'Demo fast', provider_id: 'preview' }, { id: 'demo-reasoning', display_name: 'Demo reasoning', provider_id: 'preview' }] }], connections: [] }, { schema: 'arc.Catalog', headers: { 'cache-control': 'no-store' } })
+  if (mode === 'preview') return ctx.json({ providers: [{ id: 'preview', display_name: 'Preview', models: [{ id: 'demo-fast', display_name: 'Demo fast', provider_id: 'preview' }, { id: 'demo-reasoning', display_name: 'Demo reasoning', provider_id: 'preview' }] }], connections: [], preview: true }, { schema: 'arc.Catalog', headers: { 'cache-control': 'no-store' } })
   const token = await ctx.secret.get('FASTLY_API_TOKEN')
   if (!token) return ctx.json({ error: 'Configure FASTLY_API_TOKEN in the service Secret Store.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
   const providers = await ctx.fetch('https://api.fastly.com/ai-runtime-control/v1/providers', { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<Providers>('arc.Providers')
   const connections = await ctx.fetch('https://api.fastly.com/ai-runtime-control/v1/provider-connections', { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<Connections>('arc.Connections')
   if (providers.data === undefined || connections.data === undefined) return ctx.json({ error: 'ARC discovery failed. Check the management token and account access.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
-  return ctx.json({ providers: providers.data, connections: connections.data }, { schema: 'arc.Catalog', headers: { 'cache-control': 'no-store' } })
+  return ctx.json({ providers: providers.data, connections: connections.data, preview: false }, { schema: 'arc.Catalog', headers: { 'cache-control': 'no-store' } })
 })
 app.post('/api/admin/keys/list', async (ctx) => {
   const input = await ctx.req.json<PageInput>('arc.PageInput')
@@ -198,5 +200,5 @@ app.post('/api/chat', async (ctx) => {
   // The local session UUID is not sent; messages carry conversation context.
   return ctx.fetch('https://arc.fastly.app/v1/chat/completions', { method: 'POST', timeoutMs: 25000, headers: { authorization: `Bearer ${value}`, 'content-type': 'application/json' }, json: { model, messages: input.messages, stream: false }, schema: 'arc.Completion' })
 })
-app.error(async (error, ctx, next) => ctx.json({ error: 'The request could not be completed. For key creation or rotation, refresh the key list before retrying; ARC may already have processed it.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } }))
+app.error(async (error, ctx, next) => ctx.json({ error: 'The request could not be completed. Reload the affected key or policy before retrying; ARC may already have processed the change.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } }))
 export default app

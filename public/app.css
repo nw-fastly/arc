@@ -22,3 +22,22 @@
   .overview-flow { counter-reset: step; }
   .overview-flow strong::before { counter-increment: step; content: counter(step) '. '; color: #879477; }
 }
+
+.policy-modal { width: min(960px, calc(100% - 32px)); max-height: calc(100dvh - 32px); }
+.policy-heading, .policy-card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.policy-heading { margin-bottom: 14px; }
+.policy-heading h2 { overflow-wrap: anywhere; }
+.policy-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 22px; }
+.policy-card { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: white; min-width: 0; }
+.policy-card h3 { font-size: 15px; margin: 6px 0 16px; }
+.policy-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.policy-card .subtext { font-size: 11px; }
+.policy-card .notice { line-height: 1.7; }
+.policy-card .primary { margin-top: 12px; }
+.failover-targets { padding-left: 20px; }
+.failover-target { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.failover-target select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; background: var(--paper); }
+.failover-target .secondary { padding: 6px 10px; }
+@media (max-width: 700px) { .policy-cards { grid-template-columns: 1fr; } .policy-modal { padding: 18px; } .policy-fields { grid-template-columns: 1fr; gap: 0; } }
+.admin-layout > section { min-width: 0; }
+.target-order { width: 100%; font-size: 10px; color: var(--muted); }

@@ -1,33 +1,54 @@
-# Pass 1 validation
+# ARC validation
 
-## Implemented
+## Pass 2: key policies
 
-- Local persona CRUD and multiple key assignments, separate from credential storage.
-- Read-only provider/model/connection discovery; cursor-based ARC key listing.
-- ARC key creation and rotation with server-side credential capture and explicit recovery messages.
-- Server-selected model and token; assignment checks on every chat request.
-- Empty-chat overview, replacing the orbit/taglines and prompt suggestions.
-- Existing root `fastly.toml` and `npm run deploy` retained; two static backends configured.
+Implemented an authenticated policy router and a two-section admin editor:
 
-## Dependency blocker
+- Partial PATCH for RPM/TPM, nullable expiry, firewall enabled/action, and the update-only ARC spend-limit flag.
+- Full PUT for ordered provider-connection failover targets and all three triggers.
+- Independent read/save states and errors. Unavailable or malformed failover reads never become editable empty defaults.
+- Explicit UTC input, duplicate-target validation, target reordering, preservation of undiscovered existing connections, and confirmation before removing all targets.
+- Read-only preview controls; no policy writes to local KV or credentials.
 
-`@pulse-compute/runtime@1.0.0-beta.5` restricts `PulseFetchInitBase.method` to `GET | HEAD | POST`. The same restriction is enforced by its runtime fetch validator and the Fastly provider contract. The latest npm release and upstream main inspected on 2026-10-02 still have this restriction.
+### Executed checks
 
-ARC key PATCH and DELETE cannot be implemented within that contract. This draft PR leaves remote editing/deletion to Fastly, and remains incomplete against the original pass 1 scope. No method-override header, dependency patch, JavaScript fallback, or second backend has been introduced. Pass 2 will also require outbound PUT for failover policy replacement.
+- **39/39 Pulse Native fixture harness cases passed.** Coverage includes the original pass 1 cases plus policy auth, nullable/false updates, numeric validation, schema rejection, read-only preview, feature 404, empty failover replacement, and duplicate targets. Schema decode failures use the app's existing sanitized 502 error boundary; domain validation returns 400.
+- **10/10 authoring tests passed**, executing the actual TypeScript handlers with recorded effects. These additionally assert exact outgoing methods, URLs, bodies and headers; omission versus null/false; target order; independent failures; no KV mutation; no automatic retries; and update-only spend control. The test adapter is not a production runtime or a substitute for Pulse schema decoding.
+- **Native Fastly build passed.** The app remains `host: fastly`, `target: native`.
+- **Viceroy 0.21.0 smoke passed** against a controlled local origin. It verifies actual outgoing PATCH and PUT, policy readback, target order, a failing failover save after a successful key-policy update, and continued use of the rotated credential. Pass 1 asset/auth/discovery/create/rotate/chat assertions also pass.
+- **Chromium policy checks passed** against the authoring fixture server: unchanged fields omitted, explicit removal, UTC conversion with browser timezone America/Denver, spend toggle, firewall disabling, ordered failover, missing-connection preservation, failed save isolation, duplicate target rejection, full removal, unavailable feature, and 390px layout. No page errors or horizontal overflow. Updated policy screenshots are committed.
+- JavaScript syntax and whitespace checks passed.
 
-## Executed checks
+### Remaining release gate
 
-- TypeScript typecheck.
-- 29 focused Pulse Native fixture tests: authentication, old API retirement, redaction, user validation, assignment enforcement, unavailable credentials, message bounds, gateway status, management token requirement, create/rotate, mismatched rotation IDs, pagination, cursor validation, discovery, and preview behavior.
-- Native Fastly build (`host: fastly`, `target: native`).
-- Viceroy 0.21.0 against a controlled local HTTP origin: static assets, auth, discovery, creation, rotation, public/admin secret redaction, assignments, outbound management header, server-selected model/body, isolation of management and gateway credentials, stale user save after rotation, and inactive/unassigned user denial.
+The pinned published `@pulse-compute/runtime@1.0.0-beta.5` **TypeScript declaration** accepts only `GET | HEAD | POST` in `PulseFetchInitBase.method`. `npm run typecheck` therefore reports two TS2322 errors at the intentional PATCH and PUT calls in `src/policies.ts`. No casts, declaration overrides, dependency patches, or suppressed checks hide them.
 
-The harness uses the Fastly Native fixture ABI's `json` response field. The earlier `value` fixture spelling yields an empty origin body and is not evidence of successful structured response decoding.
+Direct Native testing refined the earlier pass 1 assessment: the generated Fastly artifact does execute PATCH/PUT correctly; the outstanding issue demonstrated here is the published typing contract. The user requested preparation for the forthcoming Pulse release. Keep this PR draft until all direct Pulse packages and the lockfile are updated together and typecheck, harness, build, and Viceroy are rerun. Existing CI remains enabled and typecheck will stay red until that dependency update.
 
-- Chromium browser check against the compiled Wasm in Viceroy: four-step overview, per-user model selector, chat response, key creation and rotation, assignment changes, and 390px mobile layout. No browser page errors or horizontal overflow; screenshots updated.
+### Reproduce
+
+```sh
+npm run test:policies
+npm test
+npm run build
+VICEROY_BIN=/path/to/viceroy npm run test:native
+npm run typecheck
+```
+
+Optional browser check (Playwright and Chromium supplied separately):
+
+```sh
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/policies.browser.mjs
+```
+
+## Pass 1 baseline
+
+PR #3 introduced local personas and multi-key assignments, discovery, paginated key listing, ARC key creation/rotation, credential separation, and the chat overview. Its 29-case harness, typecheck, Native build, Viceroy, and chat/admin browser checks passed at that point. Pass 2 expands the same harness and Native smoke.
+
+General key metadata editing/deletion remain pass 1 follow-ups. Activity remains pass 3. Existing root `fastly.toml`, deploy command, and static backend configuration are retained.
 
 ## Boundaries
 
-No live ARC account request, deployment, provisioning, merge, or repository settings change. The provided API documents were used locally and are not committed. Management authentication uses Fastly's documented `Fastly-Key` convention; account-specific access must be checked when connected.
+No live ARC account request, deployment, provisioning, merge, or repository settings change. Supplied private API documents were used locally and are not committed. Policy behavior is verified against controlled responses matching those documents, not account-specific entitlements.
 
-KV is deliberately eventually consistent with last-write-wins documents. User writes cannot overwrite credentials, but simultaneous key mutations can race with one another; use one admin operator. Key mutation recovery paths are explicit in code; real Fastly KV outage behavior has not been fault-injected.
+KV remains deliberately eventually consistent and last-write-wins for the demo. The new policy routes do not write KV. Key mutation outage behavior from pass 1 has not been fault-injected against real Fastly storage.

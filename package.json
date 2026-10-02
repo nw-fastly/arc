@@ -14,7 +14,8 @@
     "build": "npm run assets && pulse build",
     "deploy": "fastly compute publish",
     "typecheck": "tsc --noEmit",
-    "test:native": "node tests/native-smoke.mjs"
+    "test:native": "node tests/native-smoke.mjs",
+    "test:policies": "node --test tests/policies.test.mjs"
   },
   "dependencies": {
     "@pulse-compute/pulse": "1.0.0-beta.5",

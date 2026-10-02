@@ -6,10 +6,11 @@ A small chat demo built with **Pulse Native on Fastly Compute**. ARC owns provid
 - A simple empty-chat overview: Chat → Fastly Compute → ARC → AI provider.
 - Local demo users with up to 10 assigned virtual keys each. Each key selects one provider and one model; the server resolves both the model and credential.
 - Password-protected admin for user CRUD, read-only provider/model/connection discovery, paginated ARC key listing, key creation, and key rotation.
+- Per-key policy editor for RPM/TPM, UTC expiry, AI Firewall, ARC spend-limit flag, and ordered failover, with independent saves.
 - Virtual credentials remain server-side. Neither public nor authenticated admin responses return their values.
 - The same native Compute service serves the UI and API.
 
-**Pass 1 is incomplete:** Pulse `1.0.0-beta.5` permits outbound GET, HEAD, and POST only. ARC key editing requires PATCH, and deletion requires DELETE. Those actions remain in Fastly until Pulse supports them. This app does not emulate revocation by deleting a local registration. Key policies and Activity are planned for passes 2 and 3; failover writes also require outbound PUT.
+**Release preparation:** Pass 2 adds the policy editor and PATCH/PUT routes ahead of the next Pulse release. Packages remain pinned to `1.0.0-beta.5`; its public TypeScript fetch signature rejects these two verbs. This draft must receive the synchronized Pulse dependency update and pass all gates before merge. General key metadata editing and deletion remain pass 1 follow-ups; Activity remains pass 3.
 
 ![ARC chat playground](docs/screenshots/chat.png)
 
@@ -49,6 +50,24 @@ Open `http://127.0.0.1:8787`, then `/admin` with **`local-admin-only`**. Local f
 
 The gateway URL is fixed to `https://arc.fastly.app/v1/chat/completions`; the management base is `https://api.fastly.com/ai-runtime-control/v1`. `ARC_URL` is no longer used. Live requests never fall back to a simulated answer. No live-account or deployment validation has been performed.
 
+## Key policies
+
+Open **Virtual keys → Policies** for an existing key. Key creation stays small; all policy controls, including the update-only spend-limit flag, are configured after creation.
+
+- RPM and TPM accept positive whole numbers. Clearing a limit sends `null`; unchanged fields are omitted from PATCH.
+- Expiry is explicitly entered in UTC. Clearing it removes expiration. ARC validates the RFC 3339 timestamp.
+- AI Firewall has an enabled flag and `log`, `block`, or `replace` action. Disabling it preserves the configured action unless changed explicitly.
+- Spend control exposes only ARC's boolean flag. The supplied API has no dollar amount, currency, or reset-period fields.
+- Failover uses existing provider connection IDs in displayed retry order. Move targets up/down, add/remove them, and choose timeout, upstream-provider 429, and provider 5xx triggers. There is no replacement-model field.
+
+**Save key policy** sends a partial PATCH; **Save failover** sends a complete PUT containing the ordered targets and all trigger flags. Each section reports its own result. A successful key policy save remains successful if failover fails. Failed requests are never automatically retried; reload the affected section to resolve an uncertain outcome.
+
+Failover 404 means the feature is unavailable for the account **or** the key was not found. A failed or incomplete policy read exposes no save form, so it cannot accidentally replace an unknown policy with empty defaults. Existing targets whose connections are missing from discovery remain visible and preserved. Saving an empty target list requires confirmation when replacing existing targets.
+
+Preview reads are illustrative and writes are disabled. Policies live in ARC, and these endpoints never modify KV credentials or user assignments. The browser requests all metadata without caching; successful policy reads pass through ARC's metadata-only response and its headers.
+
+[Policy editor](docs/screenshots/policies.png) · [Mobile policy editor](docs/screenshots/policies-mobile.png)
+
 ## State and key lifecycle
 
 KV contains two independent documents:
@@ -64,7 +83,7 @@ Before rotating, the app clears the local credential and saves that state. If pr
 
 Key list metadata comes from ARC, with a local readiness flag. Existing ARC keys whose credentials were never captured require rotation. A model/provider mismatch against stored metadata also shows as needing rotation. Changes made outside the demo can make cached chat metadata stale; ARC remains authoritative and may reject the request. Refresh and rotate to synchronize it. Local user deletion or disabling does not revoke an ARC key.
 
-The admin password lives only in page memory. Admin and public metadata responses use `no-store`. The public user selector is demo impersonation, not authentication; chat is available to anyone who can reach the service.
+The admin password lives only in page memory. App-generated admin and public metadata responses use `no-store`; successful policy reads preserve ARC’s response headers. The public user selector is demo impersonation, not authentication; chat is available to anyone who can reach the service.
 
 ## Chat behavior
 
@@ -85,6 +104,8 @@ Requests are buffered, non-streaming, with a 25-second upstream timeout. The ada
 | `POST /api/admin/keys/list` | List keys with local readiness and next cursor |
 | `POST /api/admin/keys` | Create an ARC key and save its credential |
 | `POST /api/admin/keys/:id/rotate` | Rotate an ARC key and save its replacement |
+| `GET/PATCH /api/admin/keys/:id/policy` | Read key metadata / update policy fields |
+| `GET/PUT /api/admin/keys/:id/failover` | Read / replace ordered failover policy |
 
 All admin routes require `Authorization: Bearer <ADMIN_PASSWORD>`. Key listing accepts `{ cursor: "" }` for the first page; subsequent cursors must be percent-encoded by the caller. Key credentials and the management token are never part of these response contracts.
 
@@ -94,8 +115,9 @@ All admin routes require `Authorization: Bearer <ADMIN_PASSWORD>`. Key listing a
 npm run assets
 npm run typecheck
 npm test
+npm run test:policies
 npm run build
 VICEROY_BIN=/path/to/viceroy npm run test:native
 ```
 
-Pulse packages remain pinned to the published `1.0.0-beta.5` release. `public/` is frontend source; `scripts/embed-assets.mjs` generates static routes. Edit source assets, not generated files. See [validation](docs/validation.md) for executed checks and the remaining dependency blocker.
+Pulse packages remain pinned to the published `1.0.0-beta.5` release. `public/` is frontend source; `scripts/embed-assets.mjs` generates static routes. Edit source assets, not generated files. See [validation](docs/validation.md) for executed checks and the pending release gate.

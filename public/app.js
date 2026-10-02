@@ -118,7 +118,7 @@ function renderAdmin() {
   $('#panel-title').textContent = title; $('#panel-sub').textContent = sub; $('#add-item').textContent = `+ Add ${noun}`; $('#add-item').onclick = () => editItem()
   $('#add-item').dataset.unavailable = String(activeTab === 'users' ? settings.users.length >= 30 : !catalog.providers.length && !catalog.connections.length)
   $('#add-item').disabled = $('#add-item').dataset.unavailable === 'true'
-  $('#admin-note').textContent = activeTab === 'users' ? 'Users are demo personas, not sign-in accounts. Assign up to 10 ready keys per user. Disabling a user stops new chat requests after KV propagation.' : 'Credentials stay on the server. Rotate an existing key to make it available here; rotation also invalidates its token in other applications. Key editing and deletion currently require Fastly. Policies and Activity follow in later passes.'
+  $('#admin-note').textContent = activeTab === 'users' ? 'Users are demo personas, not sign-in accounts. Assign up to 10 ready keys per user. Disabling a user stops new chat requests after KV propagation.' : 'Credentials stay on the server. Rotate an existing key to make it available here; rotation also invalidates its token in other applications. Open Policies for limits, expiry, firewall, spend control, and failover. Key metadata editing and deletion currently require Fastly.'
   const items = activeTab === 'users' ? settings.users : keys
   if (!items.length) $('#table').append(node('div', 'empty', `No ${title.toLowerCase()} yet.`))
   else {
@@ -135,6 +135,7 @@ function renderAdmin() {
         const edit = node('button', '', 'Edit'); edit.setAttribute('aria-label', `Edit ${item.name}`); edit.onclick = () => editItem(item)
         const remove = node('button', 'danger', 'Delete'); remove.setAttribute('aria-label', `Delete ${item.name}`); remove.onclick = () => deleteUser(item); buttons.append(edit, remove)
       } else {
+        const policy = node('button', '', 'Policies'); policy.setAttribute('aria-label', `Policies for ${item.name}`); policy.onclick = () => editPolicies(item); buttons.append(policy)
         const rotate = node('button', '', 'Rotate key'); rotate.setAttribute('aria-label', `Rotate ${item.name}`); rotate.onclick = () => rotateKey(item); buttons.append(rotate)
       }
       actions.append(buttons); row.append(actions); body.append(row)
@@ -166,7 +167,7 @@ function editItem(item) {
     for (const connection of catalog.connections) if (!choices.some(p => p.id === connection.name)) choices.push({ id: connection.name, name: `${connection.name} (connection)`, models: connection.models.map(id => ({ id, name: id })) })
     for (const p of choices) option(provider, p.name, p.id)
     const models = () => { model.replaceChildren(); for (const m of choices.find(p => p.id === provider.value)?.models || []) option(model, `${m.name} · ${m.id}`, m.id) }; provider.onchange = models; models()
-    form.append(node('p', 'subtext', 'Uses existing ARC providers and connections. Configure connections in Fastly. Choose a model that supports chat completions.'))
+    form.append(node('p', 'subtext', 'Uses existing ARC providers and connections. Configure connections in Fastly. Choose a model that supports chat completions. After creation, open Policies to configure limits, expiry, firewall, spend control, and failover.'))
   }
   const errors = node('div'), actions = node('div', 'modal-actions'), cancel = node('button', 'secondary', 'Cancel'), save = node('button', 'primary', kind === 'users' ? 'Save user' : 'Create key'); cancel.type = 'button'; cancel.onclick = () => dialog.close(); save.type = 'submit'; actions.append(cancel, save); form.append(errors, actions)
   let saving = false; dialog.oncancel = event => { if (saving) event.preventDefault() }
@@ -204,5 +205,122 @@ async function rotateKey(item) {
   try { await loadKeys(); renderAdmin(); $('#notice').textContent = result }
   catch (error) { showError($('#admin-errors'), `${result} Refresh failed: ${error.message}`) }
   finally { setAdminBusy(false) }
+}
+
+
+async function editPolicies(item) {
+  const dialog = $('#editor'); dialog.classList.add('policy-modal'); dialog.replaceChildren()
+  const heading = node('div', 'policy-heading'), title = node('div'), close = node('button', 'secondary', 'Close')
+  title.append(node('h2', '', item.name), node('p', 'subtext', `${item.provider} / ${item.model}`)); heading.append(title, close); dialog.append(heading)
+  const help = node('p', 'subtext', 'Key policy and failover save independently. Changes affect every application using this key.'); dialog.append(help)
+  const cards = node('div', 'policy-cards'); dialog.append(cards)
+  let pending = 0, policyDirty = () => false, failoverDirty = () => false
+  const dismiss = () => { if (!pending && (!(policyDirty() || failoverDirty()) || confirm('Discard unsaved policy changes?'))) dialog.close() }
+  close.onclick = dismiss; dialog.oncancel = event => { event.preventDefault(); dismiss() }
+  dialog.onclose = () => { dialog.classList.remove('policy-modal'); dialog.onclose = null }
+  const busy = change => { pending += change; close.disabled = pending > 0 }
+  const path = `keys/${encodeURIComponent(item.id)}`
+  function section(label) {
+    const card = node('section', 'policy-card'), heading = node('div', 'policy-card-heading'), reload = node('button', 'text-button', 'Reload'), errors = node('div'), contents = node('div'), status = node('p', 'notice')
+    reload.type = 'button'; reload.setAttribute('aria-label', `Reload ${label.toLowerCase()}`); heading.append(node('h3', '', label), reload); status.setAttribute('role', 'status'); card.append(heading, errors, contents, status); cards.append(card)
+    return { card, reload, errors, contents, status }
+  }
+  const policy = section('Key policy'), failover = section('Failover')
+  function toggle(form, label, name, checked) { const wrapper = node('label', 'check-field'), input = node('input'); input.type = 'checkbox'; input.name = name; input.checked = checked; wrapper.append(input, document.createTextNode(label)); form.append(wrapper); return input }
+  function statusError(section, error) { showError(section.errors, error.message); section.status.textContent = 'No successful save was confirmed. Reload this section to check ARC before retrying.' }
+  async function loadPolicy() {
+    if (policyDirty() && !confirm('Discard unsaved key policy changes and reload?')) return
+    busy(1); policy.reload.disabled = true; policy.contents.replaceChildren(node('p', 'subtext', 'Loading key policy…')); policy.errors.replaceChildren(); policy.status.textContent = ''; policyDirty = () => false
+    try {
+      const initial = await adminApi(`${path}/policy`)
+      if (initial?.id !== item.id || typeof initial !== 'object') throw new Error('ARC returned an unexpected key. Policy editing is unavailable until reload succeeds.')
+      for (const name of ['rpm_limit', 'tpm_limit']) if (initial[name] != null && (!Number.isSafeInteger(initial[name]) || initial[name] < 1)) throw new Error('ARC returned an invalid rate limit. Reload before editing.')
+      for (const name of ['security_enabled', 'spend_limit_enabled']) if (initial[name] !== undefined && typeof initial[name] !== 'boolean') throw new Error('ARC returned an invalid policy flag. Reload before editing.')
+      if (initial.security_action !== undefined && !['log', 'block', 'replace'].includes(initial.security_action)) throw new Error('ARC returned an unknown firewall action. Reload before editing.')
+      const form = node('form'); form.setAttribute('aria-label', 'Key policy'); policy.contents.replaceChildren(form)
+      const fields = node('div', 'policy-fields'); form.append(fields)
+      for (const [label, name] of [['Requests per minute', 'rpm_limit'], ['Tokens per minute', 'tpm_limit']]) {
+        const input = addField(fields, label, name, initial[name] ?? ''); input.type = 'number'; input.min = '1'; input.step = '1'; input.max = String(Number.MAX_SAFE_INTEGER); input.required = false; input.placeholder = 'Unlimited'; input.setAttribute('aria-label', label)
+      }
+      form.append(node('p', 'subtext', 'Leave a limit blank to remove it. Unchanged fields are preserved.'))
+      const expiry = addField(form, 'Expires at (UTC)', 'expires_at', '', 40); expiry.type = 'datetime-local'; expiry.step = '0.001'; expiry.max = '9999-12-31T23:59:59.999'; expiry.required = false
+      if (initial.expires_at) { const date = new Date(initial.expires_at); if (!Number.isFinite(date.getTime())) throw new Error('ARC returned an invalid expiry. Reload before editing.'); expiry.value = date.toISOString().slice(0, -1) }
+      form.append(node('p', 'subtext', 'UTC time. Leave blank for no expiry.'))
+      const firewall = toggle(form, 'Enable AI Firewall', 'security_enabled', initial.security_enabled ?? false)
+      const action = selectField(form, 'Firewall action', 'security_action'); for (const value of ['log', 'block', 'replace']) option(action, value[0].toUpperCase() + value.slice(1), value); action.value = initial.security_action ?? 'log'; action.disabled = !firewall.checked; firewall.onchange = () => { action.disabled = !firewall.checked }
+      toggle(form, 'Enable ARC spend limit', 'spend_limit_enabled', initial.spend_limit_enabled ?? false)
+      form.append(node('p', 'subtext', 'This toggles ARC’s spend-limit flag. The API does not expose a budget amount or reset period.'))
+      const read = () => ({ rpm_limit: form.elements.rpm_limit.value, tpm_limit: form.elements.tpm_limit.value, expires_at: expiry.value, security_enabled: firewall.checked, security_action: action.value, spend_limit_enabled: form.elements.spend_limit_enabled.checked })
+      let baseline = read()
+      const patch = () => { const current = read(), body = {}; for (const name of Object.keys(current)) if (current[name] !== baseline[name]) { body[name] = ['rpm_limit', 'tpm_limit'].includes(name) ? current[name] === '' ? null : Number(current[name]) : name === 'expires_at' ? current[name] ? new Date(current[name] + 'Z').toISOString() : null : current[name] }; return body }
+      policyDirty = () => JSON.stringify(read()) !== JSON.stringify(baseline)
+      const save = node('button', 'primary', 'Save key policy'); save.type = 'submit'; form.append(save)
+      if (initial.preview) { for (const control of form.elements) control.disabled = true; policy.status.textContent = 'Preview policy · connect ARC to save changes.' }
+      form.onsubmit = async event => {
+        event.preventDefault(); const body = patch(); policy.errors.replaceChildren()
+        if (!Object.keys(body).length) { policy.status.textContent = 'No key policy changes.'; return }
+        for (const name of ['rpm_limit', 'tpm_limit']) if (body[name] != null && (!Number.isSafeInteger(body[name]) || body[name] < 1)) { showError(policy.errors, 'Limits must be positive whole numbers.'); return }
+        const controls = [...form.elements]; controls.forEach(control => control.disabled = true); policy.reload.disabled = true; busy(1); policy.status.textContent = 'Saving key policy…'
+        try { await adminApi(`${path}/policy`, { method: 'PATCH', body: JSON.stringify(body) }); baseline = read(); policy.status.textContent = 'Key policy saved. Failover is saved separately.' }
+        catch (error) { statusError(policy, error) }
+        finally { controls.forEach(control => control.disabled = false); action.disabled = !firewall.checked; policy.reload.disabled = false; busy(-1) }
+      }
+    } catch (error) { policy.contents.replaceChildren(); showError(policy.errors, error.message) }
+    finally { policy.reload.disabled = false; busy(-1) }
+  }
+  async function loadFailover() {
+    if (failoverDirty() && !confirm('Discard unsaved failover changes and reload?')) return
+    busy(1); failover.reload.disabled = true; failover.contents.replaceChildren(node('p', 'subtext', 'Loading failover…')); failover.errors.replaceChildren(); failover.status.textContent = ''; failoverDirty = () => false
+    try {
+      const initial = await adminApi(`${path}/failover`)
+      if (!Array.isArray(initial?.targets) || initial.targets.length > 25 || initial.targets.some(t => typeof t.provider_connection_id !== 'string' || !t.provider_connection_id) || ['timeout_enabled', 'rate_limit_429_enabled', 'server_error_5xx_enabled'].some(name => typeof initial[name] !== 'boolean')) throw new Error('ARC returned an incomplete failover policy. Saving is disabled until reload succeeds.')
+      let targets = initial.targets.map(t => t.provider_connection_id)
+      const form = node('form'); form.setAttribute('aria-label', 'Failover'); failover.contents.replaceChildren(form)
+      form.append(node('p', 'subtext', 'Provider connections are tried in this order after a primary failure. Targets reuse this key’s model; no replacement model is configured here.'))
+      const rows = node('ol', 'failover-targets'); form.append(rows)
+      const add = node('button', 'secondary', '+ Add target'); add.type = 'button'; form.append(add)
+      function renderTargets() {
+        rows.replaceChildren()
+        targets.forEach((id, index) => {
+          const row = node('li', 'failover-target'), select = node('select'); select.required = true; select.setAttribute('aria-label', `Failover target ${index + 1}`)
+          option(select, 'Choose a provider connection', '')
+          for (const connection of catalog.connections) option(select, `${connection.name}${connection.models.includes(item.model) ? '' : ' (model not listed)'}`, connection.id)
+          if (id && !catalog.connections.some(c => c.id === id)) option(select, `${id} (existing target; connection unavailable)`, id)
+          select.value = id; select.onchange = () => { targets[index] = select.value }
+          const up = node('button', 'secondary', '↑'), down = node('button', 'secondary', '↓'), remove = node('button', 'secondary', 'Remove')
+          for (const button of [up, down, remove]) button.type = 'button'
+          up.setAttribute('aria-label', `Move target ${index + 1} up`); down.setAttribute('aria-label', `Move target ${index + 1} down`); remove.setAttribute('aria-label', `Remove target ${index + 1}`)
+          up.disabled = index === 0; down.disabled = index === targets.length - 1
+          up.onclick = () => { [targets[index - 1], targets[index]] = [targets[index], targets[index - 1]]; renderTargets() }
+          down.onclick = () => { [targets[index], targets[index + 1]] = [targets[index + 1], targets[index]]; renderTargets() }
+          remove.onclick = () => { targets.splice(index, 1); renderTargets() }; row.append(node('span', 'target-order', `Target ${index + 1}`), select, up, down, remove); rows.append(row)
+        })
+        add.disabled = targets.length >= 25 || !catalog.connections.length
+      }
+      add.onclick = () => { targets.push(''); renderTargets() }; renderTargets()
+      toggle(form, 'Retry on timeout', 'timeout_enabled', initial.timeout_enabled)
+      toggle(form, 'Retry on provider 429', 'rate_limit_429_enabled', initial.rate_limit_429_enabled)
+      toggle(form, 'Retry on provider 5xx', 'server_error_5xx_enabled', initial.server_error_5xx_enabled)
+      form.append(node('p', 'subtext', '429 refers to the upstream provider’s rate limit. An empty target list removes failover targets.'))
+      const read = () => ({ targets: targets.map(provider_connection_id => ({ provider_connection_id })), timeout_enabled: form.elements.timeout_enabled.checked, rate_limit_429_enabled: form.elements.rate_limit_429_enabled.checked, server_error_5xx_enabled: form.elements.server_error_5xx_enabled.checked })
+      let baseline = read(); failoverDirty = () => JSON.stringify(read()) !== JSON.stringify(baseline)
+      const save = node('button', 'primary', 'Save failover'); save.type = 'submit'; form.append(save)
+      const preview = catalog.preview === true
+      if (preview) { for (const control of form.elements) control.disabled = true; failover.status.textContent = 'Preview policy · connect ARC to save changes.' }
+      form.onsubmit = async event => {
+        event.preventDefault(); const body = read(); failover.errors.replaceChildren()
+        if (!failoverDirty()) { failover.status.textContent = 'No failover changes.'; return }
+        if (targets.some(id => !id) || new Set(targets).size !== targets.length) { showError(failover.errors, 'Select a different connection for each target.'); return }
+        if (baseline.targets.length && !targets.length && !confirm('Remove all failover targets for this key?')) return
+        const controls = [...form.elements]; controls.forEach(control => control.disabled = true); failover.reload.disabled = true; busy(1); failover.status.textContent = 'Saving failover…'
+        try { await adminApi(`${path}/failover`, { method: 'PUT', body: JSON.stringify(body) }); baseline = read(); failover.status.textContent = 'Failover saved. Key policy is saved separately.' }
+        catch (error) { statusError(failover, error) }
+        finally { controls.forEach(control => control.disabled = false); renderTargets(); failover.reload.disabled = false; busy(-1) }
+      }
+    } catch (error) { failover.contents.replaceChildren(); showError(failover.errors, error.message) }
+    finally { failover.reload.disabled = false; busy(-1) }
+  }
+  policy.reload.onclick = loadPolicy; failover.reload.onclick = loadFailover
+  dialog.showModal(); await Promise.allSettled([loadPolicy(), loadFailover()])
 }
 if (isAdmin) startAdmin(); else startChat()

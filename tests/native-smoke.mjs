@@ -16,6 +16,7 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
   let seen = [], logs = ''
   const remoteKeys = [{ id: demoKey.id, name: demoKey.name, provider: demoKey.provider, model: demoKey.model }]
   let rotations = 0
+  let failoverPolicy = { targets: [], timeout_enabled: false, rate_limit_429_enabled: false, server_error_5xx_enabled: false }
   const origin = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk
     const input = body ? JSON.parse(body) : null
@@ -29,6 +30,18 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
     if (req.method === 'POST' && req.url === base + '/keys') {
       const key = { id: 'key-' + (remoteKeys.length + 1), ...input }; remoteKeys.push(key); res.statusCode = 201
       return res.end(JSON.stringify({ ...key, access_token: 'created-native-secret' }))
+    }
+    if (req.url === base + '/keys/key-2/failover') {
+      if (req.method === 'PUT') {
+        if (input.targets.some(t => t.provider_connection_id === 'unavailable-fixture')) { res.statusCode = 503; return res.end(JSON.stringify({ error: 'fixture unavailable' })) }
+        failoverPolicy = input
+      }
+      return res.end(JSON.stringify(failoverPolicy))
+    }
+    if (req.url === base + '/keys/key-2' && ['GET', 'PATCH'].includes(req.method)) {
+      const key = remoteKeys.find(key => key.id === 'key-2')
+      if (req.method === 'PATCH') Object.assign(key, input)
+      return res.end(JSON.stringify(key))
     }
     if (req.method === 'POST' && req.url.endsWith('/rotate')) {
       const key = remoteKeys.find(key => req.url === base + '/keys/' + key.id + '/rotate')
@@ -98,12 +111,25 @@ async function smoke() {
     assert.equal((await call('/api/chat', chat)).status, 200)
     outbound = seen.filter(r => r.path === '/v1/chat/completions').at(-1)
     assert.equal(outbound.headers.authorization, 'Bearer rotated-native-secret-1')
+    // Policy writes do not touch the captured credential or assignments.
+    assert.equal((await call('/api/admin/keys/key-2/policy', undefined, 'GET')).status, 200)
+    const policyPatch = { rpm_limit: null, tpm_limit: 10000, expires_at: '2027-01-01T00:00:00.000Z', security_enabled: false, spend_limit_enabled: true }
+    assert.equal((await call('/api/admin/keys/key-2/policy', policyPatch, 'PATCH')).status, 200)
+    const policyWrite = seen.find(r => r.method === 'PATCH')
+    assert.deepEqual(policyWrite.body, policyPatch); assert.equal(policyWrite.headers['fastly-key'], 'native-management-secret')
+    const keyMetadata = await read(await call('/api/admin/keys/key-2/policy', undefined, 'GET')); assert.equal(keyMetadata.tpm_limit, 10000); assert.equal(keyMetadata.rpm_limit, null)
+    const failover = { targets: [{ provider_connection_id: 'conn-2' }, { provider_connection_id: 'conn-1' }], timeout_enabled: true, rate_limit_429_enabled: false, server_error_5xx_enabled: true }
+    assert.equal((await call('/api/admin/keys/key-2/failover', failover, 'PUT')).status, 200)
+    assert.deepEqual(await read(await call('/api/admin/keys/key-2/failover', undefined, 'GET')), failover)
+    const failure = await call('/api/admin/keys/key-2/failover', { ...failover, targets: [{ provider_connection_id: 'unavailable-fixture' }] }, 'PUT'); assert.equal(failure.status, 503)
+    assert.equal((await read(await call('/api/admin/keys/key-2/policy', undefined, 'GET'))).tpm_limit, 10000)
+    assert.equal((await call('/api/chat', chat)).status, 200); assert.equal(seen.filter(r => r.path === '/v1/chat/completions').at(-1).headers.authorization, 'Bearer rotated-native-secret-1')
     const before = seen.length
     assert.equal((await call('/api/chat', { ...chat, userId: 'sam' })).status, 403); assert.equal(seen.length, before)
     const disabled = { users: users.users.map(u => ({ ...u, active: false })) }
     assert.equal((await call('/api/admin/users', disabled, 'PUT')).status, 200)
     assert.equal((await call('/api/chat', chat)).status, 403)
-    console.log('Native Viceroy smoke passed: assets, auth, discovery, key creation/rotation, secret redaction, assignments, server-selected model, and stale-user-save isolation.')
+    console.log('Native Viceroy smoke passed: assets, auth, discovery, key creation/rotation, secret redaction, assignments, server-selected model, stale-user-save isolation, and independent key/failover policies.')
   }, { seed: true })
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await smoke()
