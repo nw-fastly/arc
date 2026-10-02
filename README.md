@@ -1,18 +1,21 @@
 # ARC playground
 
-A small chat demo built with **Pulse Native on Fastly Compute**. It demonstrates an application calling AI Runtime Control with an ARC virtual key. ARC continues to own provider credentials, routing, failover, usage accounting, and policy enforcement.
+A small chat demo built with **Pulse Native on Fastly Compute**. ARC owns provider credentials, model routing, policy enforcement, metering, and failover.
 
-- Clean chat UI with animated bubbles, formatted responses, a top user switcher, and a bottom model selector and send button.
-- Independent conversation history per demo user, kept in browser `sessionStorage` for the current tab. New conversation clears that user's history.
-- Password-protected admin CRUD for users, virtual-key registrations, and model choices.
-- One Fastly KV settings document. Last write wins; no transactional infrastructure.
-- Same service serves the UI and API; no JavaScript runtime in the Fastly deployment artifact.
+- Chat with a top persona selector, a bottom model selector, and formatted responses.
+- A simple empty-chat overview: Chat → Fastly Compute → ARC → AI provider.
+- Local demo users with up to 10 assigned virtual keys each. Each key selects one provider and one model; the server resolves both the model and credential.
+- Password-protected admin for user CRUD, read-only provider/model/connection discovery, paginated ARC key listing, key creation, and key rotation.
+- Virtual credentials remain server-side. Neither public nor authenticated admin responses return their values.
+- The same native Compute service serves the UI and API.
+
+**Pass 1 is incomplete:** Pulse `1.0.0-beta.5` permits outbound GET, HEAD, and POST only. ARC key editing requires PATCH, and deletion requires DELETE. Those actions remain in Fastly until Pulse supports them. This app does not emulate revocation by deleting a local registration. Key policies and Activity are planned for passes 2 and 3; failover writes also require outbound PUT.
 
 ![ARC chat playground](docs/screenshots/chat.png)
 
 [Admin screenshot](docs/screenshots/admin.png) · [Mobile screenshot](docs/screenshots/mobile.png)
 
-## Try it locally
+## Try locally
 
 Requires Node 22.14+ on the 22.x line or Node 24.x.
 
@@ -23,83 +26,76 @@ npm test
 npm run dev
 ```
 
-Open `http://127.0.0.1:8787`. Open `/admin` using **`local-admin-only`**. This password exists only in the local development fixture; it is not embedded as a deployed secret.
+Open `http://127.0.0.1:8787`, then `/admin` with **`local-admin-only`**. Local fixtures include two users and two model-scoped keys. Alex can use both; Sam starts with one. Preview chat responses are visibly simulated. User CRUD and assignments work locally. Key creation and rotation return a clear setup message in preview mode and never call ARC. Restarting the dev process restores the fixture state.
 
-The local profile includes two demo users and two illustrative model choices. The connection label and response metadata explicitly identify simulated responses. No LLM calls are made in preview mode. Local KV lasts for the dev process; restarting restores the configured fixtures.
+## Connect ARC and deploy
 
-## Build for Fastly
+1. Configure provider connections in Fastly ARC. This app discovers existing providers, models, and connections; it does not create them. Choose a model supporting the gateway's OpenAI-compatible chat-completions API.
+2. Link these resources to your Compute service. Names must match `.pulse/config.ts`:
 
-```sh
-npm run build
-```
-
-The explicit profile is `host: 'fastly', target: 'native'`. The package is generated under `dist/`, including `bin/main.wasm`, generated AssemblyScript, and manifests. `public/` assets are converted into static Pulse routes by `scripts/embed-assets.mjs` before build. Edit `public/`, not generated files.
-
-Pulse packages are pinned to the published `1.0.0-beta.5` release and recorded in `package-lock.json`. This repository does not depend on a moving branch or an unpublished workspace build.
-
-## Connect your ARC account
-
-1. In Fastly ARC, configure your provider and create a virtual key. Keep provider API keys in ARC.
-2. Obtain the **full OpenAI-compatible chat-completions URL** for your ARC account. The app sends `POST`, `Authorization: Bearer <virtual key>`, and `{ model, messages, stream: false }`. It expects `choices[0].message.content` as text. This adapter has not yet been verified against a live ARC account. Provider-specific APIs such as Anthropic Messages need an additional adapter.
-3. In `.pulse/config.ts`, replace the `https://arc.example.invalid` backend origin with the origin of that URL. Keep its name `arc_backend`. Configure that Fastly backend with the matching host, TLS, SNI, and host override. Dynamic backends stay disabled.
-4. Create and link the following resources to the Compute service. The names must match the profile:
-
-   | Resource | Name | Contents |
+   | Resource | Name | Contents / destination |
    | --- | --- | --- |
-   | Config Store | `arc_config` | `ARC_MODE=live`; `ARC_URL=<full URL>` |
-   | Secret Store | `arc_secrets` | `ADMIN_PASSWORD=<your own strong password>` |
-   | KV Store | `arc_state` | Initially empty; populated by Admin |
-   | Backend | `arc_backend` | Your ARC endpoint origin |
+   | Config Store | `arc_config` | `ARC_MODE=live` |
+   | Secret Store | `arc_secrets` | `ADMIN_PASSWORD` and `FASTLY_API_TOKEN` |
+   | KV Store | `arc_state` | Initially empty |
+   | Backend | `arc_gateway` | `https://arc.fastly.app` |
+   | Backend | `fastly_api` | `https://api.fastly.com` |
 
-5. From the project root, run `npm run deploy` after installing and authenticating the Fastly CLI. The root `fastly.toml` runs the Pulse Native build, stages `dist/bin/main.wasm` as `bin/main.wasm`, and `fastly compute publish` builds and deploys it. Set `service_id` in `fastly.toml` to target an existing Compute service; otherwise the CLI can guide you through creating one. The manifest does not provision or link ARC resources. `npm run build` alone never deploys.
-6. Open `/admin`, unlock with your deployed admin password, add the actual model IDs and an ARC virtual key, then add users assigned to that key. Return to chat and send a small prompt. Confirm the request and model in ARC's own logs.
+   Set TLS, SNI, and host override to each backend's hostname. Dynamic backends are disabled. Management requests use `Fastly-Key` with the server's API token, following [Fastly API authentication](https://www.fastly.com/documentation/reference/api/#authentication). The token needs access to ARC in the account. Gateway requests use the selected virtual key as a Bearer token. Provider API keys stay in ARC.
 
-Do not populate deployment resources with the local preview key or illustrative model IDs. `dev.config`, `dev.secrets`, and `dev.kv` are only local fixture inputs. On an empty deployment, the UI guides you to Admin. Missing admin secrets deny access; missing ARC URL returns a setup error. A failed live request never becomes a simulated response.
+3. Run `npm run build` to produce `dist/bin/main.wasm`. To deploy, install/authenticate the Fastly CLI, set `service_id` in the root `fastly.toml` for your service, and run `npm run deploy`. The manifest builds and stages the Wasm; it does not provision or link stores and backends. `npm run build` does not deploy.
+4. Open Admin. Create a virtual key using the discovered provider/model choices, or rotate an existing ARC key to capture its new credential. ARC returns the token only on creation/rotation. Rotation invalidates its previous token everywhere it is used.
+5. Add a local user and assign ready keys. Return to chat and select that user. The model selector contains only that user's locally available keys.
 
-### What the virtual-key CRUD means
+The gateway URL is fixed to `https://arc.fastly.app/v1/chat/completions`; the management base is `https://api.fastly.com/ai-runtime-control/v1`. `ARC_URL` is no longer used. Live requests never fall back to a simulated answer. No live-account or deployment validation has been performed.
 
-Admin registers ARC-issued keys for this demo and assigns them to demo users. It does **not** create or revoke credentials in the Fastly ARC control plane. Rotation here replaces the registered value; create/rotate/revoke the actual key in Fastly as appropriate. Deleting a key here clears its user assignments. Disabling a key or user stops new demo requests after KV propagation; requests already in flight may complete.
+## State and key lifecycle
 
-Virtual-key values are kept server-side in KV. Public bootstrap responses contain neither values nor assignments. Authorized admin requests can read the settings document, and all admin responses are `no-store`. The password and unlocked state stay in page memory and clear when leaving/reloading Admin. The UI masks key values and only asks for a replacement during editing. This is a demo convenience, not a vault.
+KV contains two independent documents:
 
-### Demo boundaries
+- `users-v2`: local personas with name, active flag, and assigned ARC key IDs. Only this document is replaced by user CRUD.
+- `credentials-v2`: server-owned key metadata and credentials. Only key creation/rotation writes it. There is no credential-read or whole-settings-write endpoint.
 
-- User selection is impersonation for demonstrations, not identity verification. Chat is accessible to anyone who can reach the service. Use a controlled demo audience and ARC's key limits for paid use.
-- Up to 30 users, 30 keys, and 30 models. Admin changes replace one settings document, so concurrent edits can overwrite one another. Fastly KV propagation may briefly show older state.
-- Up to 20 messages forwarded per request, 8,000 characters per message, and 24,000 total characters. Previous messages are sent as context; no chat transcripts are stored in KV.
-- Buffered responses, with a 25-second upstream timeout. No tools, uploads, autonomous calls, or streaming in this first version.
-- Replies render a small safe Markdown subset (paragraphs, headings, lists, bold, inline/fenced code). Raw HTML is always text.
-- Response metadata shows returned model, elapsed browser time, and actual token usage only when provided. No invented cost or failover telemetry.
-- A per-conversation UUID is local bookkeeping. ARC session attribution remains unconfigured until the account's documented session header/body field is confirmed.
+The former `settings` document is deliberately ignored: its manually entered tokens cannot be safely mapped to ARC resource IDs or model scopes. Recreate personas and create/rotate the desired ARC keys after upgrading. The old document can then be removed using Fastly's KV tooling. The old `/api/admin/settings` API is retired.
+
+Credentials are stored in KV for this demo, with up to 100 local entries. User state is bounded to 30 personas and 10 assignments each. Writes are last-write-wins and KV is eventually consistent; use one admin operator. Requests already in flight may complete using an older credential. The app checks assignments again for every chat request.
+
+Before rotating, the app clears the local credential and saves that state. If preparing rotation fails, it does not call ARC. If ARC or the subsequent save fails, the key is unavailable locally; refresh and rotate again to recover. If creation succeeds remotely but storage fails, the error names the key ID and instructs rotation, avoiding duplicate creation. Mutations are never automatically retried.
+
+Key list metadata comes from ARC, with a local readiness flag. Existing ARC keys whose credentials were never captured require rotation. A model/provider mismatch against stored metadata also shows as needing rotation. Changes made outside the demo can make cached chat metadata stale; ARC remains authoritative and may reject the request. Refresh and rotate to synchronize it. Local user deletion or disabling does not revoke an ARC key.
+
+The admin password lives only in page memory. Admin and public metadata responses use `no-store`. The public user selector is demo impersonation, not authentication; chat is available to anyone who can reach the service.
+
+## Chat behavior
+
+Conversation history is stored per user in browser-tab `sessionStorage`. Up to 20 messages, 8,000 characters each, and 24,000 characters total are forwarded. New conversation resets that user's context. The local session UUID is not forwarded; ARC session attribution remains deferred and does not block chat.
+
+Requests are buffered, non-streaming, with a 25-second upstream timeout. The adapter sends `{ model, messages, stream: false }` and expects text in `choices[0].message.content`. It does not assume every provider supports that wire format. Responses show model, elapsed time, and token usage only when returned. Markdown renders as a safe subset without raw HTML.
 
 ## Routes
 
 | Route | Purpose |
 | --- | --- |
-| `GET /`, `GET /admin` | Chat and admin UI |
-| `GET /app.css`, `GET /app.js` | Embedded frontend assets |
+| `GET /`, `GET /admin`, `GET /app.css`, `GET /app.js` | Embedded UI |
 | `GET /health` | Health response |
-| `GET /api/bootstrap` | Active public users and model choices |
-| `POST /api/chat` | Validate selection; call ARC with server-selected key |
-| `GET /api/admin/settings` | Read settings; requires admin bearer password |
-| `PUT /api/admin/settings` | Validate and replace settings; requires admin bearer password |
+| `GET /api/bootstrap` | Active users and their assigned, locally available model keys |
+| `POST /api/chat` | Authorize assignment, resolve credential/model, call ARC |
+| `GET/PUT /api/admin/users` | Read/replace local users and assignments |
+| `GET /api/admin/catalog` | Discover ARC providers, models, and connections |
+| `POST /api/admin/keys/list` | List keys with local readiness and next cursor |
+| `POST /api/admin/keys` | Create an ARC key and save its credential |
+| `POST /api/admin/keys/:id/rotate` | Rotate an ARC key and save its replacement |
 
-CRUD lives in the admin UI over the bounded settings API. Removing a referenced token automatically unassigns it from users. Duplicate IDs and invalid references are rejected server-side.
+All admin routes require `Authorization: Bearer <ADMIN_PASSWORD>`. Key listing accepts `{ cursor: "" }` for the first page; subsequent cursors must be percent-encoded by the caller. Key credentials and the management token are never part of these response contracts.
 
 ## Checks
 
 ```sh
+npm run assets
 npm run typecheck
 npm test
 npm run build
+VICEROY_BIN=/path/to/viceroy npm run test:native
 ```
 
-`pulse test` covers public data redaction, admin authorization, settings validation, disabled/unknown key and model selection, message limits, endpoint setup, and upstream response/rate-limit behavior through the Fastly provider's local runtime. This is distinct from running compiled Wasm in Viceroy and from remote Fastly deployment. See `docs/validation.md` for the actual checks completed.
-
-Optional compiled-host smoke (requires Viceroy):
-
-```sh
-VICEROY_BIN=/absolute/path/to/viceroy npm run test:native
-```
-
-ARC setup reference: [Getting started with AI Runtime Control](https://www.fastly.com/documentation/guides/platform/ai-runtime-control/getting-started-with-ai-runtime-control/).
+Pulse packages remain pinned to the published `1.0.0-beta.5` release. `public/` is frontend source; `scripts/embed-assets.mjs` generates static routes. Edit source assets, not generated files. See [validation](docs/validation.md) for executed checks and the remaining dependency blocker.

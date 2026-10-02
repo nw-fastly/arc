@@ -45,22 +45,17 @@ function loadHistory(id) { try { const v = JSON.parse(sessionStorage.getItem(`ar
 function saveHistory(id, history) { try { sessionStorage.setItem(`arc.chat.${id}`, JSON.stringify(history)) } catch {} }
 async function startChat() {
   main.className = 'chat-main'
-  main.innerHTML = `<div class="session-bar"><span class="status" id="connection"><span class="status-dot"></span>Connecting…</span><button class="text-button" id="new-chat" type="button">New conversation</button></div><section class="welcome" id="welcome"><div class="orbit" aria-hidden="true"><div class="orb small" id="orb-small"></div><div class="orb main" id="orb-main"></div><div class="orb tiny"></div><div class="orb-dot"></div></div><div class="eyebrow">SPACE TO EXPLORE</div><h1>A little curiosity.<br><em>A lot of possibility.</em></h1><p>Choose a model. Bring an idea.<br>See where the conversation takes you.</p><div class="suggestions" id="suggestions"></div><div class="rotating" id="rotating" aria-hidden="true">One conversation. A world of models.</div></section><section class="messages" id="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text" hidden></section><div id="chat-errors"></div><div class="composer-wrap"><form class="composer" id="chat-form"><label class="sr-only" for="prompt">Message</label><textarea id="prompt" rows="2" maxlength="8000" placeholder="What's on your mind?" required></textarea><div class="composer-bottom"><div class="model-wrap"><span class="model-dot"></span><label class="sr-only" for="model">Model</label><select id="model" disabled><option>Loading models…</option></select></div><button class="send" id="send" type="submit" disabled>Send message</button></div></form><div class="composer-footer"><span class="hint">Enter to send · Shift + Enter for a new line</span><span class="powered">Powered by <strong>Fastly</strong> · Built with Pulse</span></div></div>`
-  $('#new-chat').prepend(icon('plus', 13)); $('#send').append(icon('arrow')); $('#orb-main').append(icon('spark', 31)); $('#orb-small').append(icon('code', 14))
-  const prompts = [['pen', 'Write something', 'Help me write a warm welcome note for a new teammate.'], ['spark', 'Explore an idea', 'Explain an interesting idea I can learn in two minutes.'], ['code', 'Build something', 'Show me a small, useful JavaScript function and explain how it works.']]
-  for (const [symbol, title, prompt] of prompts) { const button = node('button', 'suggestion', title); button.type = 'button'; button.prepend(icon(symbol, 13)); button.onclick = () => { $('#prompt').value = prompt; $('#prompt').focus() }; $('#suggestions').append(button) }
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) { let i = 0; const phrases = ['One conversation. A world of models.', 'A new perspective is a question away.', 'Your next idea starts here.']; setInterval(() => { if (!$('#welcome').hidden && !document.hidden) $('#rotating').textContent = phrases[++i % phrases.length] }, 4500) }
+  main.innerHTML = `<div class="session-bar"><span class="status" id="connection"><span class="status-dot"></span>Connecting…</span><button class="text-button" id="new-chat" type="button">New conversation</button></div><section class="welcome" id="welcome"><div class="eyebrow">HOW IT WORKS</div><h1>Your request, end to end.</h1><ol class="overview-flow" aria-label="Request flow"><li><strong>Chat</strong><span>Your message</span></li><li><strong>Fastly Compute</strong><span>Pulse app</span></li><li class="flow-arc"><strong>ARC</strong><span>Virtual key · Limits<br>Routing · Failover</span></li><li><strong>AI provider</strong><span>Model response</span></li></ol></section><section class="messages" id="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text" hidden></section><div id="chat-errors"></div><div class="composer-wrap"><form class="composer" id="chat-form"><label class="sr-only" for="prompt">Message</label><textarea id="prompt" rows="2" maxlength="8000" placeholder="What's on your mind?" required></textarea><div class="composer-bottom"><div class="model-wrap"><span class="model-dot"></span><label class="sr-only" for="model">Model</label><select id="model" disabled><option>Loading models…</option></select></div><button class="send" id="send" type="submit" disabled>Send message</button></div></form><div class="composer-footer"><span class="hint">Enter to send · Shift + Enter for a new line</span><span class="powered">Powered by <strong>Fastly</strong> · Built with Pulse</span></div></div>`
+  $('#new-chat').prepend(icon('plus', 13)); $('#send').append(icon('arrow'))
   let catalog, userId = '', history, busy = false
   const userSelect = node('select'); userSelect.id = 'user'; userSelect.setAttribute('aria-label', 'Demo user'); const avatar = node('span', 'avatar', '…'); const picker = node('div', 'user-picker'); picker.append(avatar, userSelect); $('#header-control').append(picker)
-  const setBusy = value => { busy = value; $('#send').disabled = value || !userId || !$('#model').value; $('#model').disabled = value || !catalog?.models.length; userSelect.disabled = value; $('#new-chat').disabled = value; $('#prompt').disabled = value }
+  const setBusy = value => { busy = value; $('#send').disabled = value || !userId || !$('#model').value; $('#model').disabled = value || !$('#model').options.length; userSelect.disabled = value; $('#new-chat').disabled = value; $('#prompt').disabled = value }
   function appendTurn(message) { const turn = node('article', `turn ${message.role}`); const a = node('div', 'avatar', message.role === 'user' ? initials(catalog.users.find(u => u.id === userId)?.name || 'You') : ''); if (message.role === 'assistant') a.append(icon('spark', 15)); const bubble = node('div', 'bubble'); if (message.role === 'assistant') markdown(bubble, message.content); else bubble.append(node('p', '', message.content)); if (message.meta) bubble.append(node('div', 'turn-meta', message.meta)); turn.append(a, bubble); $('#messages').append(turn) }
   function renderHistory() { $('#messages').replaceChildren(); $('#messages').hidden = !history.messages.length; $('#welcome').hidden = !!history.messages.length; for (const message of history.messages) appendTurn(message) }
-  function switchUser() { userId = userSelect.value; history = loadHistory(userId); avatar.textContent = initials(catalog.users.find(u => u.id === userId)?.name || ''); $('#chat-errors').replaceChildren(); renderHistory(); setBusy(false) }
+  function switchUser() { userId = userSelect.value; $('#model').replaceChildren(); for (const key of catalog.users.find(u => u.id === userId)?.models || []) { const option = node('option', '', `${key.model} · ${key.name}`); option.value = key.id; $('#model').append(option) }; history = loadHistory(userId); avatar.textContent = initials(catalog.users.find(u => u.id === userId)?.name || ''); $('#chat-errors').replaceChildren(); renderHistory(); if (!$('#model').options.length) showError($('#chat-errors'), 'Assign a ready virtual key to this user in Admin.'); setBusy(false) }
   try {
     catalog = await api('/api/bootstrap'); $('#connection').replaceChildren(node('span', 'status-dot'), document.createTextNode(catalog.mode === 'preview' ? 'Local preview · simulated responses' : 'ARC connection · live mode'))
     for (const user of catalog.users) { const option = node('option', '', user.name); option.value = user.id; userSelect.append(option) }
-    $('#model').replaceChildren(); for (const model of catalog.models) { const option = node('option', '', `${model.label} · ${model.provider}`); option.value = model.id; $('#model').append(option) }
-    if (!catalog.users.length || !catalog.models.length) showError($('#chat-errors'), 'Your playground is almost ready. Add a user, virtual key, and model in Admin.')
     switchUser()
   } catch (error) { showError($('#chat-errors'), error.message); $('#connection').textContent = 'Connection unavailable' }
   userSelect.onchange = switchUser
@@ -68,12 +63,12 @@ async function startChat() {
   $('#prompt').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!busy && !$('#send').disabled) $('#chat-form').requestSubmit() } })
   $('#chat-form').onsubmit = async event => {
     event.preventDefault(); const content = $('#prompt').value.trim(); if (busy || !content || !userId) return
-    $('#chat-errors').replaceChildren(); const model = $('#model').value; const prior = history.messages.slice(-18).map(({ role, content }) => ({ role, content })); const outgoing = [...prior, { role: 'user', content }]
+    $('#chat-errors').replaceChildren(); const keyId = $('#model').value; const model = catalog.users.find(u => u.id === userId)?.models.find(k => k.id === keyId)?.model || ''; const prior = history.messages.slice(-18).map(({ role, content }) => ({ role, content })); const outgoing = [...prior, { role: 'user', content }]
     if (outgoing.reduce((n, m) => n + m.content.length, 0) > 24000) { showError($('#chat-errors'), 'This conversation is full. Start a new conversation to continue.'); return }
     setBusy(true); history.messages.push({ role: 'user', content }); renderHistory(); $('#prompt').value = ''
     const loading = node('div', 'turn assistant'); loading.setAttribute('role', 'status'); loading.setAttribute('aria-label', 'Waiting for response'); const dots = node('div', 'typing'); dots.append(node('span'), node('span'), node('span')); loading.append(node('div', 'avatar', '·'), dots); $('#messages').append(loading); loading.scrollIntoView({ block: 'nearest' }); const start = performance.now()
     try {
-      const response = await api('/api/chat', { method: 'POST', body: JSON.stringify({ userId, model, messages: outgoing, sessionId: history.sessionId }), signal: AbortSignal.timeout(30000) })
+      const response = await api('/api/chat', { method: 'POST', body: JSON.stringify({ userId, keyId, messages: outgoing, sessionId: history.sessionId }), signal: AbortSignal.timeout(30000) })
       const answer = response?.choices?.[0]?.message?.content
       if (typeof answer !== 'string' || !answer) throw new Error('The endpoint did not return a chat-completions response. Check its URL and model configuration.')
       const parts = [response.preview ? 'Simulated response' : (response.model || model), `${((performance.now() - start) / 1000).toFixed(1)}s`]
@@ -83,47 +78,131 @@ async function startChat() {
     finally { loading.remove(); setBusy(false); $('#prompt').focus() }
   }
 }
-let adminPassword = '', settings = null, activeTab = 'users'
+let adminPassword = '', settings = { users: [] }, keys = [], catalog = { providers: [], connections: [] }, activeTab = 'users', nextCursor = '', adminBusy = false
+const adminApi = (path, options = {}) => api(`/api/admin/${path}`, { ...options, headers: { authorization: `Bearer ${adminPassword}` } })
+async function loadKeys(cursor = '') {
+  const page = await adminApi('keys/list', { method: 'POST', body: JSON.stringify({ cursor: encodeURIComponent(cursor) }) })
+  keys = cursor ? [...keys, ...page.keys.filter(key => !keys.some(k => k.id === key.id))] : page.keys
+  nextCursor = page.nextCursor
+}
+async function refreshAdmin() {
+  settings = await adminApi('users')
+  await loadKeys()
+  catalog = await adminApi('catalog')
+}
 async function startAdmin() {
   main.className = 'admin-main'
-  main.innerHTML = `<section class="login"><div class="eyebrow">PLAYGROUND ADMIN</div><h1>A little housekeeping.</h1><p class="subtext">Manage your demo users, virtual keys, and model choices.</p><form id="login-form"><label class="field">Admin password<input type="password" id="password" autocomplete="current-password" required></label><div id="login-errors"></div><button class="primary" type="submit">Open admin</button></form></section>`
-  $('#login-form').onsubmit = async event => { event.preventDefault(); const button = $('#login-form button'); button.disabled = true; const candidate = $('#password').value; try { const data = await api('/api/admin/settings', { headers: { authorization: `Bearer ${candidate}` } }); adminPassword = candidate; settings = data; renderAdmin() } catch (error) { showError($('#login-errors'), error.message) } finally { button.disabled = false } }
-}
-const tabInfo = { users: ['Users', 'Choose who is using the playground.', 'user'], tokens: ['Virtual keys', 'Connect ARC-issued keys to your demo users.', 'virtual key'], models: ['Models', 'Use the exact model IDs enabled in your ARC account.', 'model'] }
-function renderAdmin() {
-  main.innerHTML = `<div class="admin-heading"><div><div class="eyebrow">BEHIND THE CONVERSATION</div><h1>Your playground, arranged.</h1><p class="subtext">A few simple controls. Room to experiment.</p></div><button class="secondary" id="logout">Lock admin</button></div><div class="admin-layout"><nav class="tabs" aria-label="Admin sections" id="tabs"></nav><section><div id="admin-errors"></div><div class="panel"><div class="panel-top"><div><h2 id="panel-title"></h2><p id="panel-sub"></p></div><button class="primary" id="add-item"></button></div><div class="table-wrap" id="table"></div></div><p class="admin-note" id="admin-note"></p><div class="notice" id="notice" role="status"></div></section></div><dialog class="modal" id="editor"></dialog>`
-  $('#logout').onclick = () => { adminPassword = ''; settings = null; startAdmin() }
-  for (const [key, info] of Object.entries(tabInfo)) { const b = node('button', `tab ${key === activeTab ? 'active' : ''}`, info[0]); b.append(node('span', '', String(settings[key].length))); b.onclick = () => { activeTab = key; renderAdmin() }; $('#tabs').append(b) }
-  const [title, sub, noun] = tabInfo[activeTab]; $('#panel-title').textContent = title; $('#panel-sub').textContent = sub; $('#add-item').textContent = `+ Add ${noun}`; $('#add-item').disabled = settings[activeTab].length >= 30; $('#add-item').onclick = () => editItem()
-  $('#admin-note').textContent = activeTab === 'tokens' ? 'Paste an existing ARC virtual key. Removing a key here removes its demo assignment; revoke it in Fastly to revoke the ARC credential.' : activeTab === 'users' ? 'Users are demo personas. The chat selector switches persona; it is not a sign-in system.' : 'Model availability, provider routing, and limits remain controlled by ARC.'
-  if (!settings[activeTab].length) { $('#table').append(node('div', 'empty', `No ${title.toLowerCase()} yet. Add your first ${noun} to get started.`)); return }
-  const table = node('table'); const head = node('tr'); for (const text of [activeTab === 'tokens' ? 'Key' : activeTab === 'models' ? 'Model' : 'Name', activeTab === 'users' ? 'Virtual key' : activeTab === 'models' ? 'Provider' : 'Credential', 'Status', 'Actions']) head.append(node('th', '', text)); const thead = node('thead'); thead.append(head); table.append(thead); const body = node('tbody')
-  for (const item of settings[activeTab]) {
-    const row = node('tr'), name = node('td', '', item.name || item.label); name.append(node('span', 'minor', item.id)); row.append(name)
-    row.append(node('td', '', activeTab === 'users' ? settings.tokens.find(t => t.id === item.tokenId)?.label || 'Not assigned' : activeTab === 'models' ? item.provider : item.value ? '••••••••••••' : 'Not configured'))
-    const status = node('td'); status.append(node('span', `badge ${item.active ? '' : 'off'}`, item.active ? 'Active' : 'Disabled')); row.append(status)
-    const actions = node('td'), buttons = node('div', 'row-actions'); const edit = node('button', '', 'Edit'); edit.setAttribute('aria-label', `Edit ${item.name || item.label}`); edit.onclick = () => editItem(item); const remove = node('button', 'danger', 'Delete'); remove.setAttribute('aria-label', `Delete ${item.name || item.label}`); remove.onclick = () => deleteItem(item); buttons.append(edit, remove); actions.append(buttons); row.append(actions); body.append(row)
+  main.innerHTML = `<section class="login"><div class="eyebrow">PLAYGROUND ADMIN</div><h1>Admin</h1><p class="subtext">Demo users and ARC virtual keys.</p><form id="login-form"><label class="field">Admin password<input type="password" id="password" autocomplete="current-password" required></label><div id="login-errors"></div><button class="primary" type="submit">Open admin</button></form></section>`
+  $('#login-form').onsubmit = async event => {
+    event.preventDefault(); const button = $('#login-form button'); button.disabled = true; adminPassword = $('#password').value
+    try { settings = await adminApi('users'); renderAdmin(); await reload() }
+    catch (error) { adminPassword = ''; showError($('#login-errors'), error.message) }
+    finally { button.disabled = false }
   }
-  table.append(body); $('#table').append(table)
 }
-async function persist(next) { await api('/api/admin/settings', { method: 'PUT', headers: { authorization: `Bearer ${adminPassword}` }, body: JSON.stringify(next) }); settings = next }
-function addField(form, label, name, value = '', { type = 'text', required = true, max = 100, help = '' } = {}) { const wrapper = node('label', 'field', label); const input = node('input'); input.name = name; input.setAttribute('aria-label', label); input.type = type; input.value = value; input.required = required; input.maxLength = max; if (type === 'password') input.autocomplete = 'new-password'; wrapper.append(input); if (help) wrapper.append(node('small', '', help)); form.append(wrapper); return input }
+async function reload() {
+  if (adminBusy) return
+  adminBusy = true; setAdminBusy(true)
+  try { await refreshAdmin(); renderAdmin() }
+  catch (error) { showError($('#admin-errors'), error.message) }
+  finally { adminBusy = false; setAdminBusy(false) }
+}
+function setAdminBusy(busy) { main.querySelectorAll('button').forEach(button => { button.disabled = busy || button.dataset.unavailable === 'true' }) }
+const tabInfo = { users: ['Users', 'Local demo personas and their assigned model keys.', 'user'], keys: ['Virtual keys', 'Each ARC key selects one provider and one model.', 'virtual key'] }
+function renderAdmin() {
+  main.innerHTML = `<div class="admin-heading"><div><div class="eyebrow">ARC PLAYGROUND</div><h1>Admin</h1><p class="subtext">Users and virtual keys</p></div><div class="row-actions"><button class="secondary" id="refresh">Refresh</button><button class="secondary" id="logout">Lock admin</button></div></div><div class="admin-layout"><nav class="tabs" aria-label="Admin sections" id="tabs"></nav><section><div id="admin-errors"></div><div class="panel"><div class="panel-top"><div><h2 id="panel-title"></h2><p id="panel-sub"></p></div><button class="primary" id="add-item"></button></div><div class="table-wrap" id="table"></div><button class="text-button" id="more" hidden>Load more keys</button></div><p class="admin-note" id="admin-note"></p><div class="notice" id="notice" role="status"></div></section></div><dialog class="modal" id="editor"></dialog>`
+  $('#logout').onclick = () => { adminPassword = ''; settings = { users: [] }; keys = []; catalog = { providers: [], connections: [] }; startAdmin() }
+  $('#refresh').onclick = reload
+  for (const [tab, info] of Object.entries(tabInfo)) { const button = node('button', `tab ${tab === activeTab ? 'active' : ''}`, info[0]); button.onclick = () => { activeTab = tab; renderAdmin() }; $('#tabs').append(button) }
+  const [title, sub, noun] = tabInfo[activeTab]
+  $('#panel-title').textContent = title; $('#panel-sub').textContent = sub; $('#add-item').textContent = `+ Add ${noun}`; $('#add-item').onclick = () => editItem()
+  $('#add-item').dataset.unavailable = String(activeTab === 'users' ? settings.users.length >= 30 : !catalog.providers.length && !catalog.connections.length)
+  $('#add-item').disabled = $('#add-item').dataset.unavailable === 'true'
+  $('#admin-note').textContent = activeTab === 'users' ? 'Users are demo personas, not sign-in accounts. Assign up to 10 ready keys per user. Disabling a user stops new chat requests after KV propagation.' : 'Credentials stay on the server. Rotate an existing key to make it available here; rotation also invalidates its token in other applications. Key editing and deletion currently require Fastly. Policies and Activity follow in later passes.'
+  const items = activeTab === 'users' ? settings.users : keys
+  if (!items.length) $('#table').append(node('div', 'empty', `No ${title.toLowerCase()} yet.`))
+  else {
+    const table = node('table'), head = node('tr'), thead = node('thead'), body = node('tbody')
+    for (const title of ['Name', activeTab === 'users' ? 'Assigned models' : 'Provider / model', 'Status', 'Actions']) head.append(node('th', '', title))
+    thead.append(head); table.append(thead)
+    for (const item of items) {
+      const row = node('tr'), name = node('td', '', item.name); name.append(node('span', 'minor', item.id)); row.append(name)
+      row.append(node('td', '', activeTab === 'users' ? item.keyIds.map(id => { const key = keys.find(k => k.id === id); return key ? key.model : id }).join(', ') || 'Not assigned' : `${item.provider} / ${item.model}`))
+      const status = node('td'), ready = activeTab === 'users' ? item.active : item.ready
+      status.append(node('span', `badge ${ready ? '' : 'off'}`, activeTab === 'users' ? ready ? 'Active' : 'Disabled' : ready ? 'Ready' : 'Needs rotation')); row.append(status)
+      const actions = node('td'), buttons = node('div', 'row-actions')
+      if (activeTab === 'users') {
+        const edit = node('button', '', 'Edit'); edit.setAttribute('aria-label', `Edit ${item.name}`); edit.onclick = () => editItem(item)
+        const remove = node('button', 'danger', 'Delete'); remove.setAttribute('aria-label', `Delete ${item.name}`); remove.onclick = () => deleteUser(item); buttons.append(edit, remove)
+      } else {
+        const rotate = node('button', '', 'Rotate key'); rotate.setAttribute('aria-label', `Rotate ${item.name}`); rotate.onclick = () => rotateKey(item); buttons.append(rotate)
+      }
+      actions.append(buttons); row.append(actions); body.append(row)
+    }
+    table.append(body); $('#table').append(table)
+  }
+  if (activeTab === 'keys' && nextCursor) {
+    $('#more').hidden = false; $('#more').onclick = async () => { setAdminBusy(true); try { await loadKeys(nextCursor); renderAdmin() } catch (error) { showError($('#admin-errors'), error.message) } finally { setAdminBusy(false) } }
+  }
+}
+function addField(form, label, name, value = '', max = 100) {
+  const wrapper = node('label', 'field', label), input = node('input'); input.name = name; input.value = value; input.required = true; input.maxLength = max; wrapper.append(input); form.append(wrapper); return input
+}
+function selectField(form, label, name) { const wrapper = node('label', 'field', label), select = node('select'); select.name = name; select.setAttribute('aria-label', label); select.required = true; wrapper.append(select); form.append(wrapper); return select }
+function option(select, label, value) { const item = node('option', '', label); item.value = value; select.append(item) }
 function editItem(item) {
-  const kind = activeTab, [, , noun] = tabInfo[kind], dialog = $('#editor'); dialog.replaceChildren(); const form = node('form'); form.append(node('h2', '', `${item ? 'Edit' : 'Add'} ${noun}`)); dialog.append(form)
-  if (kind === 'models') { const input = addField(form, 'Model ID', 'id', item?.id, { max: 150, help: 'Exact ID from your ARC provider configuration.' }); input.readOnly = !!item }
-  addField(form, kind === 'users' ? 'Full name' : 'Label', 'label', item?.name || item?.label)
-  if (kind === 'users') { const field = node('label', 'field', 'Virtual key'); const select = node('select'); select.name = 'tokenId'; select.setAttribute('aria-label', 'Virtual key'); const empty = node('option', '', 'Not assigned'); empty.value = ''; select.append(empty); for (const token of settings.tokens) { const option = node('option', '', token.label + (token.active ? '' : ' (disabled)')); option.value = token.id; select.append(option) }; select.value = item?.tokenId || ''; field.append(select); form.append(field) }
-  if (kind === 'tokens') addField(form, 'Virtual key value', 'value', '', { type: 'password', required: !item?.value, max: 4096, help: item?.value ? 'Leave blank to keep the existing key. Paste a new key to rotate it here.' : 'Paste the ARC virtual key, not a provider API key.' })
-  if (kind === 'models') addField(form, 'Provider label', 'provider', item?.provider, { help: 'Display label, such as OpenAI or Anthropic.' })
-  const active = node('label', 'check-field'); const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.name = 'active'; checkbox.checked = item?.active ?? true; active.append(checkbox, document.createTextNode('Active')); form.append(active)
-  const errors = node('div'); form.append(errors); const actions = node('div', 'modal-actions'); const cancel = node('button', 'secondary', 'Cancel'); cancel.type = 'button'; cancel.onclick = () => dialog.close(); const save = node('button', 'primary', 'Save changes'); save.type = 'submit'; actions.append(cancel, save); form.append(actions)
-  form.onsubmit = async event => { event.preventDefault(); save.disabled = true; cancel.disabled = true; const data = new FormData(form); const id = item?.id || (kind === 'models' ? String(data.get('id')).trim() : crypto.randomUUID()); const value = { id, active: data.has('active') }; if (kind === 'users') Object.assign(value, { name: String(data.get('label')).trim(), tokenId: data.get('tokenId') }); else if (kind === 'models') Object.assign(value, { label: String(data.get('label')).trim(), provider: String(data.get('provider')).trim() }); else Object.assign(value, { label: String(data.get('label')).trim(), value: String(data.get('value')).trim() || item?.value || '' }); if (!item && settings[kind].some(x => x.id === id)) { showError(errors, 'That ID already exists.'); save.disabled = false; cancel.disabled = false; return }; const next = structuredClone(settings); next[kind] = item ? next[kind].map(x => x.id === item.id ? value : x) : [...next[kind], value]; try { await persist(next); dialog.close(); renderAdmin(); $('#notice').textContent = 'Changes saved.' } catch (error) { showError(errors, error.message); save.disabled = false; cancel.disabled = false } }
+  const kind = activeTab, dialog = $('#editor'), form = node('form'); dialog.replaceChildren(form); form.append(node('h2', '', `${item ? 'Edit' : 'Add'} ${kind === 'users' ? 'user' : 'virtual key'}`)); addField(form, 'Name', 'name', item?.name)
+  if (kind === 'users') {
+    const group = node('fieldset', 'key-choices'); group.append(node('legend', '', 'Assigned virtual keys'))
+    const available = [...keys.filter(k => k.ready)]
+    for (const id of item?.keyIds || []) if (!available.some(k => k.id === id)) available.push({ id, name: `${id} (not loaded or unavailable)`, model: '' })
+    for (const key of available) { const label = node('label', 'check-field'), box = node('input'); box.type = 'checkbox'; box.name = 'keyIds'; box.value = key.id; box.checked = item?.keyIds.includes(key.id) || false; label.append(box, document.createTextNode(`${key.name}${key.model ? ' · ' + key.model : ''}`)); group.append(label) }
+    if (!available.length) group.append(node('p', 'subtext', 'Create or rotate a key first. You can save this user without an assignment.'))
+    form.append(group)
+    const label = node('label', 'check-field'), box = node('input'); box.type = 'checkbox'; box.name = 'active'; box.checked = item?.active ?? true; label.append(box, document.createTextNode('Active')); form.append(label)
+  } else {
+    const provider = selectField(form, 'Provider', 'provider'), model = selectField(form, 'Model', 'model')
+    const choices = catalog.providers.map(p => ({ id: p.id, name: p.display_name, models: p.models.map(m => ({ id: m.id, name: m.display_name })) }))
+    for (const connection of catalog.connections) if (!choices.some(p => p.id === connection.name)) choices.push({ id: connection.name, name: `${connection.name} (connection)`, models: connection.models.map(id => ({ id, name: id })) })
+    for (const p of choices) option(provider, p.name, p.id)
+    const models = () => { model.replaceChildren(); for (const m of choices.find(p => p.id === provider.value)?.models || []) option(model, `${m.name} · ${m.id}`, m.id) }; provider.onchange = models; models()
+    form.append(node('p', 'subtext', 'Uses existing ARC providers and connections. Configure connections in Fastly. Choose a model that supports chat completions.'))
+  }
+  const errors = node('div'), actions = node('div', 'modal-actions'), cancel = node('button', 'secondary', 'Cancel'), save = node('button', 'primary', kind === 'users' ? 'Save user' : 'Create key'); cancel.type = 'button'; cancel.onclick = () => dialog.close(); save.type = 'submit'; actions.append(cancel, save); form.append(errors, actions)
+  let saving = false; dialog.oncancel = event => { if (saving) event.preventDefault() }
+  form.onsubmit = async event => {
+    event.preventDefault(); if (saving) return; saving = true; save.disabled = true; cancel.disabled = true
+    const data = new FormData(form)
+    try {
+      if (kind === 'users') {
+        const user = { id: item?.id || crypto.randomUUID(), name: String(data.get('name')).trim(), keyIds: data.getAll('keyIds'), active: data.has('active') }
+        if (user.keyIds.length > 10) throw new Error('Assign at most 10 keys per user.')
+        const users = item ? settings.users.map(u => u.id === item.id ? user : u) : [...settings.users, user]
+        await adminApi('users', { method: 'PUT', body: JSON.stringify({ users }) }); settings = { users }
+      } else {
+        await adminApi('keys', { method: 'POST', body: JSON.stringify({ name: String(data.get('name')).trim(), provider: data.get('provider'), model: data.get('model') }) })
+      }
+      dialog.close(); renderAdmin(); $('#notice').textContent = kind === 'users' ? 'User saved.' : 'Key created. Refreshing the list…'
+      if (kind === 'keys') await reload()
+    } catch (error) { showError(errors, error.message) }
+    finally { saving = false; save.disabled = false; cancel.disabled = false }
+  }
   dialog.showModal()
 }
-async function deleteItem(item) {
-  const kind = activeTab, name = item.name || item.label; if (!confirm(`Delete ${name}?${kind === 'tokens' ? ' Assigned users will have no virtual key.' : ''}`)) return
-  const next = structuredClone(settings); next[kind] = next[kind].filter(x => x.id !== item.id); if (kind === 'tokens') next.users = next.users.map(u => u.tokenId === item.id ? { ...u, tokenId: '' } : u)
-  $('#table').querySelectorAll('button').forEach(b => b.disabled = true)
-  try { await persist(next); renderAdmin(); $('#notice').textContent = 'Deleted.' } catch (error) { showError($('#admin-errors'), error.message); $('#table').querySelectorAll('button').forEach(b => b.disabled = false) }
+async function deleteUser(item) {
+  if (!confirm(`Delete demo user ${item.name}? Their ARC keys will remain available.`)) return
+  setAdminBusy(true)
+  try { const users = settings.users.filter(u => u.id !== item.id); await adminApi('users', { method: 'PUT', body: JSON.stringify({ users }) }); settings = { users }; renderAdmin(); $('#notice').textContent = 'User deleted.' }
+  catch (error) { showError($('#admin-errors'), error.message) } finally { setAdminBusy(false) }
+}
+async function rotateKey(item) {
+  if (!confirm(`Rotate ${item.name}? ARC immediately invalidates the old token everywhere it is used. Assigned demo users will use the replacement after KV propagation.`)) return
+  setAdminBusy(true)
+  let result = ''
+  try { result = await adminApi(`keys/${encodeURIComponent(item.id)}/rotate`, { method: 'POST' }) }
+  catch (error) { result = error.message }
+  try { await loadKeys(); renderAdmin(); $('#notice').textContent = result }
+  catch (error) { showError($('#admin-errors'), `${result} Refresh failed: ${error.message}`) }
+  finally { setAdminBusy(false) }
 }
 if (isAdmin) startAdmin(); else startChat()

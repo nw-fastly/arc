@@ -1,14 +1,31 @@
 import { defineSchemaRegistry, schema } from '@pulse-compute/pulse/schema'
-export interface User { id: string; name: string; tokenId: string; active: boolean }
-export interface Token { id: string; label: string; value: string; active: boolean }
-export interface Model { id: string; label: string; provider: string; active: boolean }
-export interface Settings { users: User[]; tokens: Token[]; models: Model[] }
-export interface Bootstrap { users: User[]; models: Model[]; mode: string }
+export interface User { id: string; name: string; keyIds: string[]; active: boolean }
+export interface Users { users: User[] }
+export interface KeyInput { name: string; provider: string; model: string }
+export interface Key { id: string; name: string; provider: string; model: string }
+export interface Credential { id: string; name: string; provider: string; model: string; value: string }
+export interface Credentials { keys: Credential[] }
+export interface KeyResult { id?: string; name?: string; provider?: string; model?: string; access_token?: string }
+export interface KeyPage { data?: Key[]; meta?: { next_cursor?: string | null } }
+export interface KeyView { id: string; name: string; provider: string; model: string; ready: boolean }
+export interface Keys { keys: KeyView[]; nextCursor: string }
+export interface PageInput { cursor: string }
+export interface Model { id: string; display_name: string; provider_id: string }
+export interface Provider { id: string; display_name: string; models: Model[] }
+export interface Providers { data?: Provider[] }
+export interface Connection { id: string; name: string; models: string[]; auth_type: string }
+export interface Connections { data?: Connection[] }
+export interface Catalog { providers: Provider[]; connections: Connection[] }
+export interface PublicUser { id: string; name: string; models: Key[] }
+export interface Bootstrap { users: PublicUser[]; mode: string }
 export interface Message { role: 'user' | 'assistant'; content: string }
-export interface Chat { userId: string; model: string; messages: Message[]; sessionId: string }
+export interface Chat { userId: string; keyId: string; messages: Message[]; sessionId: string }
 export interface Completion { model: string; messages: Message[]; stream: boolean }
 export interface ErrorBody { error: string }
 export default defineSchemaRegistry({ schemas: {
-  'arc.Settings': schema<Settings>(), 'arc.Bootstrap': schema<Bootstrap>(),
-  'arc.Chat': schema<Chat>(), 'arc.Completion': schema<Completion>(), 'arc.Error': schema<ErrorBody>(),
+  'arc.Users': schema<Users>(), 'arc.KeyInput': schema<KeyInput>(), 'arc.KeyResult': schema<KeyResult>(),
+  'arc.KeyPage': schema<KeyPage>(), 'arc.Keys': schema<Keys>(), 'arc.PageInput': schema<PageInput>(),
+  'arc.Providers': schema<Providers>(), 'arc.Connections': schema<Connections>(), 'arc.Catalog': schema<Catalog>(),
+  'arc.Bootstrap': schema<Bootstrap>(), 'arc.Chat': schema<Chat>(), 'arc.Completion': schema<Completion>(),
+  'arc.Error': schema<ErrorBody>(),
 } })

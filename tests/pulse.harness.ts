@@ -1,26 +1,43 @@
-const user = { id: 'alex', name: 'Alex Morgan', tokenId: 'team', active: true }
-const token = { id: 'team', label: 'Demo team', value: 'test-virtual-key', active: true }
-const model = { id: 'demo-fast', label: 'Quick thinker', provider: 'Preview', active: true }
-const settings = { users: [user], tokens: [token], models: [model] }
+const user = { id: 'alex', name: 'Alex Morgan', keyIds: ['key-1'], active: true }
+const key = { id: 'key-1', name: 'Fast model', provider: 'test-provider', model: 'test-fast', value: 'secret-virtual-key' }
+const users = { users: [user] }
+const state = { 'users-v2': users, 'credentials-v2': { keys: [key] } }
 const auth = { authorization: 'Bearer test-admin', 'content-type': 'application/json' }
-const secrets = { ADMIN_PASSWORD: 'test-admin' }
-const chat = { userId: 'alex', model: 'demo-fast', messages: [{ role: 'user', content: 'Hello' }], sessionId: 'session-1' }
+const secrets = { ADMIN_PASSWORD: 'test-admin', FASTLY_API_TOKEN: 'secret-management-token' }
+const chat = { userId: 'alex', keyId: 'key-1', messages: [{ role: 'user', content: 'Hello' }], sessionId: 'local-only' }
+const management = 'https://api.fastly.com/ai-runtime-control/v1'
+const created = { id: 'key-2', name: 'Second key', provider: 'test-provider', model: 'test-other', access_token: 'new-virtual-secret' }
+const keyInput = { name: created.name, provider: created.provider, model: created.model }
+const keyList = { data: [{ id: key.id, name: key.name, provider: key.provider, model: key.model }, { id: created.id, name: created.name, provider: created.provider, model: created.model }], meta: { next_cursor: 'next==' } }
+const request = (path, body, method = 'POST') => ({ path, method, headers: auth, body: JSON.stringify(body) })
 export default { cases: [
   { name: 'health', request: { path: '/health' }, expect: { status: 200, text: 'ok' } },
-  { name: 'public-catalog-excludes-keys', request: { path: '/api/bootstrap' }, kv: { state: { settings } }, config: { ARC_MODE: 'preview' }, expect: { status: 200, json: { users: [{ ...user, tokenId: '' }], models: [model], mode: 'preview' } } },
-  { name: 'uninitialized-catalog', request: { path: '/api/bootstrap' }, kv: { state: {} }, expect: { status: 200, json: { users: [], models: [], mode: 'live' } } },
-  { name: 'admin-denied', request: { path: '/api/admin/settings' }, secrets, expect: { status: 401 } },
-  { name: 'admin-missing-secret-fails-closed', request: { path: '/api/admin/settings', headers: auth }, expect: { status: 401 } },
-  { name: 'admin-read', request: { path: '/api/admin/settings', headers: auth }, secrets, kv: { state: { settings } }, expect: { status: 200, json: settings } },
-  { name: 'admin-write', request: { method: 'PUT', path: '/api/admin/settings', headers: auth, body: JSON.stringify(settings) }, secrets, kv: { state: {} }, expect: { status: 200 } },
-  { name: 'admin-write-denied', request: { method: 'PUT', path: '/api/admin/settings', body: JSON.stringify(settings) }, secrets, expect: { status: 401 } },
-  { name: 'admin-rejects-dangling-token', request: { method: 'PUT', path: '/api/admin/settings', headers: auth, body: JSON.stringify({ ...settings, tokens: [] }) }, secrets, expect: { status: 400 } },
-  { name: 'admin-rejects-duplicate-user', request: { method: 'PUT', path: '/api/admin/settings', headers: auth, body: JSON.stringify({ ...settings, users: [user, user] }) }, secrets, expect: { status: 400 } },
-  { name: 'unknown-user-denied', request: { method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...chat, userId: 'missing' }) }, kv: { state: { settings } }, expect: { status: 403 } },
-  { name: 'disabled-token-denied', request: { method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, body: JSON.stringify(chat) }, kv: { state: { settings: { ...settings, tokens: [{ ...token, active: false }] } } }, expect: { status: 403 } },
-  { name: 'unknown-model-denied', request: { method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...chat, model: 'unavailable' }) }, kv: { state: { settings } }, expect: { status: 403 } },
-  { name: 'empty-message-denied', request: { method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...chat, messages: [{ role: 'user', content: '   ' }] }) }, kv: { state: { settings } }, expect: { status: 400 } },
-  { name: 'live-needs-endpoint', request: { method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, body: JSON.stringify(chat) }, kv: { state: { settings } }, expect: { status: 503 } },
-  { name: 'live-response', request: { method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, body: JSON.stringify(chat) }, config: { ARC_MODE: 'live', ARC_URL: 'https://arc.example.invalid/v1/chat/completions' }, kv: { state: { settings } }, fetches: { 'POST https://arc.example.invalid/v1/chat/completions': { status: 200, value: { choices: [{ message: { role: 'assistant', content: 'Hello from the upstream.' } }] } } }, expect: { status: 200 } },
-  { name: 'arc-rate-limit-passes-through', request: { method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, body: JSON.stringify(chat) }, config: { ARC_MODE: 'live', ARC_URL: 'https://arc.example.invalid/v1/chat/completions' }, kv: { state: { settings } }, fetches: { 'POST https://arc.example.invalid/v1/chat/completions': { status: 429, value: { error: { message: 'Budget exceeded' } } } }, expect: { status: 429 } },
+  { name: 'public-catalog-redacts-all-credentials', request: { path: '/api/bootstrap' }, kv: { state }, config: { ARC_MODE: 'preview' }, expect: { status: 200, json: { users: [{ id: user.id, name: user.name, models: [{ id: key.id, name: key.name, provider: key.provider, model: key.model }] }], mode: 'preview' } } },
+  { name: 'empty-public-catalog', request: { path: '/api/bootstrap' }, kv: { state: {} }, expect: { status: 200, json: { users: [], mode: 'live' } } },
+  { name: 'admin-auth-required', request: { path: '/api/admin/users' }, secrets, expect: { status: 401 } },
+  { name: 'missing-admin-secret-fails-closed', request: { path: '/api/admin/users', headers: auth }, expect: { status: 401 } },
+  { name: 'admin-users-have-no-secrets', request: { path: '/api/admin/users', headers: auth }, secrets, kv: { state }, expect: { status: 200, json: users } },
+  { name: 'old-settings-route-retired', request: { path: '/api/admin/settings', headers: auth }, secrets, expect: { status: 404 } },
+  { name: 'save-users', request: request('/api/admin/users', users, 'PUT'), secrets, kv: { state }, expect: { status: 200 } },
+  { name: 'duplicate-users-rejected', request: request('/api/admin/users', { users: [user, user] }, 'PUT'), secrets, kv: { state }, expect: { status: 400 } },
+  { name: 'dangling-key-rejected', request: request('/api/admin/users', { users: [{ ...user, keyIds: ['missing'] }] }, 'PUT'), secrets, kv: { state }, expect: { status: 400 } },
+  { name: 'duplicate-key-assignments-rejected', request: request('/api/admin/users', { users: [{ ...user, keyIds: ['key-1', 'key-1'] }] }, 'PUT'), secrets, kv: { state }, expect: { status: 400 } },
+  { name: 'unknown-user-denied', request: request('/api/chat', { ...chat, userId: 'missing' }), kv: { state }, expect: { status: 403 } },
+  { name: 'unassigned-key-denied', request: request('/api/chat', { ...chat, keyId: 'missing' }), kv: { state }, expect: { status: 403 } },
+  { name: 'disabled-user-denied', request: request('/api/chat', chat), kv: { state: { ...state, 'users-v2': { users: [{ ...user, active: false }] } } }, expect: { status: 403 } },
+  { name: 'unavailable-credential-denied', request: request('/api/chat', chat), kv: { state: { ...state, 'credentials-v2': { keys: [{ ...key, value: '' }] } } }, expect: { status: 409 } },
+  { name: 'empty-message-rejected', request: request('/api/chat', { ...chat, messages: [] }), kv: { state }, expect: { status: 400 } },
+  { name: 'blank-message-rejected', request: request('/api/chat', { ...chat, messages: [{ role: 'user', content: '  ' }] }), kv: { state }, expect: { status: 400 } },
+  { name: 'live-response', request: request('/api/chat', chat), kv: { state }, fetches: { 'POST https://arc.fastly.app/v1/chat/completions': { status: 200, headers: { 'content-type': 'application/json' }, json: { choices: [{ message: { content: 'Hello' } }] } } }, expect: { status: 200 } },
+  { name: 'rate-limit-preserved', request: request('/api/chat', chat), kv: { state }, fetches: { 'POST https://arc.fastly.app/v1/chat/completions': { status: 429, headers: { 'content-type': 'application/json' }, json: { error: { message: 'Rate limited' } } } }, expect: { status: 429 } },
+  { name: 'management-secret-required', request: request('/api/admin/keys', keyInput), secrets: { ADMIN_PASSWORD: 'test-admin' }, expect: { status: 503 } },
+  { name: 'create-key-redacts-token', request: request('/api/admin/keys', keyInput), secrets, kv: { state }, fetches: { [`POST ${management}/keys`]: { status: 201, headers: { 'content-type': 'application/json' }, json: created } }, expect: { status: 201, text: 'Key created and stored.' } },
+  { name: 'create-error-is-not-success', request: request('/api/admin/keys', keyInput), secrets, kv: { state }, fetches: { [`POST ${management}/keys`]: { status: 403, headers: { 'content-type': 'application/json' }, json: { error: 'denied' } } }, expect: { status: 502 } },
+  { name: 'rotate-key-redacts-token', request: request('/api/admin/keys/key-1/rotate', {}), secrets, kv: { state }, fetches: { [`POST ${management}/keys/key-1/rotate`]: { status: 201, headers: { 'content-type': 'application/json' }, json: { ...created, id: 'key-1' } } }, expect: { status: 200, text: 'Key rotated and stored.' } },
+  { name: 'mismatched-rotation-id-rejected', request: request('/api/admin/keys/key-1/rotate', {}), secrets, kv: { state }, fetches: { [`POST ${management}/keys/key-1/rotate`]: { status: 201, headers: { 'content-type': 'application/json' }, json: created } }, expect: { status: 502 } },
+  { name: 'key-list-redacts-and-marks-unavailable', request: request('/api/admin/keys/list', { cursor: '' }), secrets, kv: { state }, fetches: { [`GET ${management}/keys?limit=100&cursor=`]: { status: 200, headers: { 'content-type': 'application/json' }, json: keyList } }, expect: { status: 200, json: { keys: [{ ...keyList.data[0], ready: true }, { ...keyList.data[1], ready: false }], nextCursor: 'next==' } } },
+  { name: 'opaque-cursor-page', request: request('/api/admin/keys/list', { cursor: 'next%3D%3D' }), secrets, kv: { state }, fetches: { [`GET ${management}/keys?limit=100&cursor=next%3D%3D`]: { status: 200, headers: { 'content-type': 'application/json' }, json: { data: [], meta: { next_cursor: null } } } }, expect: { status: 200, json: { keys: [], nextCursor: '' } } },
+  { name: 'cursor-query-injection-rejected', request: request('/api/admin/keys/list', { cursor: '&include_deleted=true' }), secrets, expect: { status: 400 } },
+  { name: 'discovery-read-only', request: { path: '/api/admin/catalog', headers: auth }, secrets, fetches: { [`GET ${management}/providers`]: { status: 200, headers: { 'content-type': 'application/json' }, json: { data: [{ id: 'test', display_name: 'Test', models: [{ id: 'test-fast', display_name: 'Fast', provider_id: 'test' }] }] } }, [`GET ${management}/provider-connections`]: { status: 200, headers: { 'content-type': 'application/json' }, json: { data: [{ id: 'connection', name: 'custom', models: ['test-fast'], auth_type: 'api-key', secret_id: 'never-return' }] } } }, expect: { status: 200, json: { providers: [{ id: 'test', display_name: 'Test', models: [{ id: 'test-fast', display_name: 'Fast', provider_id: 'test' }] }], connections: [{ id: 'connection', name: 'custom', models: ['test-fast'], auth_type: 'api-key' }] } } },
+  { name: 'preview-does-not-create-real-keys', request: request('/api/admin/keys', keyInput), secrets, config: { ARC_MODE: 'preview' }, expect: { status: 409 } },
 ] }

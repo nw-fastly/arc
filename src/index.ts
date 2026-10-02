@@ -1,27 +1,34 @@
 import { Pulse } from '@pulse-compute/pulse'
-import type { Settings, Chat, User, Model } from './schemas.js'
+import type { Users, Credentials, Credential, KeyResult, KeyPage, KeyView, KeyInput, PageInput, Providers, Connections, PublicUser, Key, Chat } from './schemas.js'
 import assets from './assets.generated.js'
 const app = new Pulse({ auto: true })
 app.mount('/', assets)
 app.get('/health', async (ctx) => ctx.text('ok'))
 app.get('/api/bootstrap', async (ctx) => {
-  const settings = await ctx.kv<Settings>('state').get('settings')
+  const stored = await ctx.kv<Users>('state').get('users-v2')
   const mode = await ctx.config.get('ARC_MODE')
-  if (settings === undefined) return ctx.json({ users: [], models: [], mode: mode === 'preview' ? 'preview' : 'live' }, { schema: 'arc.Bootstrap', headers: { 'cache-control': 'no-store' } })
-  const users: User[] = []
-  const models: Model[] = []
-  for (let i = 0; i < 30 && i < settings.users.length; i++) {
-    if (settings.users[i].active) users[users.length] = { id: settings.users[i].id, name: settings.users[i].name, tokenId: '', active: true }
+  const vault = await ctx.kv<Credentials>('state').get('credentials-v2')
+  const credentials: Credential[] = vault === undefined ? [] : vault.keys
+  const users: PublicUser[] = []
+  if (stored !== undefined) {
+    for (let i = 0; i < 30 && i < stored.users.length; i++) {
+      const user = stored.users[i]
+      if (user.active) {
+        const models: Key[] = []
+        for (let j = 0; j < 10 && j < user.keyIds.length; j++) {
+          for (let k = 0; k < 100 && k < credentials.length; k++) {
+            const key = credentials[k]
+            if (key.id === user.keyIds[j] && key.value) models[models.length] = { id: key.id, name: key.name, provider: key.provider, model: key.model }
+          }
+        }
+        users[users.length] = { id: user.id, name: user.name, models }
+      }
+    }
   }
-  for (let i = 0; i < 30 && i < settings.models.length; i++) {
-    if (settings.models[i].active) models[models.length] = settings.models[i]
-  }
-  return ctx.json({ users, models, mode: mode === 'preview' ? 'preview' : 'live' }, { schema: 'arc.Bootstrap', headers: { 'cache-control': 'no-store' } })
+  return ctx.json({ users, mode: mode === 'preview' ? 'preview' : 'live' }, { schema: 'arc.Bootstrap', headers: { 'cache-control': 'no-store' } })
 })
 app.use('/api/admin/*', async (ctx, next) => {
   const password = await ctx.secret.get('ADMIN_PASSWORD')
-  // The Native header snapshot normalizes names. Reading it also handles absent
-  // Authorization without the beta.5 single-header hostcall's missing-value edge.
   const headers = ctx.req.headers
   let authorization = ''
   for (let i = 0; i < 256 && i < headers.length; i++) {
@@ -30,66 +37,166 @@ app.use('/api/admin/*', async (ctx, next) => {
   if (!password || authorization !== `Bearer ${password}`) return ctx.json({ error: 'Admin password required.' }, { status: 401, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
   return next()
 })
-app.get('/api/admin/settings', async (ctx) => {
-  const settings = await ctx.kv<Settings>('state').get('settings')
-  return ctx.json(settings === undefined ? { users: [], tokens: [], models: [] } : settings, { schema: 'arc.Settings', headers: { 'cache-control': 'no-store' } })
+app.get('/api/admin/users', async (ctx) => {
+  const stored = await ctx.kv<Users>('state').get('users-v2')
+  return ctx.json(stored === undefined ? { users: [] } : stored, { schema: 'arc.Users', headers: { 'cache-control': 'no-store' } })
 })
-app.put('/api/admin/settings', async (ctx) => {
-  const settings = await ctx.req.json<Settings>('arc.Settings')
-  let invalid = settings.users.length > 30 || settings.tokens.length > 30 || settings.models.length > 30
-  for (let i = 0; i < 30 && i < settings.users.length; i++) {
-    const item = settings.users[i]
-    if (!item.id.trim() || item.id.length > 80 || !item.name.trim() || item.name.length > 100) invalid = true
-    let found = item.tokenId === ''
-    for (let j = 0; j < 30 && j < settings.tokens.length; j++) { if (settings.tokens[j].id === item.tokenId) found = true }
-    if (!found) invalid = true
-    for (let j = 0; j < 30 && j < i; j++) { if (settings.users[j].id === item.id) invalid = true }
+// This snapshot contains only personas and assignments, never key credentials.
+app.put('/api/admin/users', async (ctx) => {
+  const input = await ctx.req.json<Users>('arc.Users')
+  const vault = await ctx.kv<Credentials>('state').get('credentials-v2')
+  const credentials: Credential[] = vault === undefined ? [] : vault.keys
+  let invalid = input.users.length > 30
+  for (let i = 0; i < 30 && i < input.users.length; i++) {
+    const user = input.users[i]
+    if (!user.id.trim() || user.id.length > 80 || !user.name.trim() || user.name.length > 100 || user.keyIds.length > 10) invalid = true
+    for (let j = 0; j < 30 && j < i; j++) { if (input.users[j].id === user.id) invalid = true }
+    for (let j = 0; j < 10 && j < user.keyIds.length; j++) {
+      const id = user.keyIds[j]
+      if (!id || id.length > 100) invalid = true
+      for (let k = 0; k < 10 && k < j; k++) { if (user.keyIds[k] === id) invalid = true }
+      let ready = false
+      for (let k = 0; k < 100 && k < credentials.length; k++) { if (credentials[k].id === id && credentials[k].value) ready = true }
+      if (!ready) invalid = true
+    }
   }
-  for (let i = 0; i < 30 && i < settings.tokens.length; i++) {
-    const item = settings.tokens[i]
-    if (!item.id.trim() || item.id.length > 80 || !item.label.trim() || item.label.length > 100 || item.value.length > 4096) invalid = true
-    for (let j = 0; j < 30 && j < i; j++) { if (settings.tokens[j].id === item.id) invalid = true }
-  }
-  for (let i = 0; i < 30 && i < settings.models.length; i++) {
-    const item = settings.models[i]
-    if (!item.id.trim() || item.id.length > 150 || !item.label.trim() || item.label.length > 100 || item.provider.length > 100) invalid = true
-    for (let j = 0; j < 30 && j < i; j++) { if (settings.models[j].id === item.id) invalid = true }
-  }
-  if (invalid) return ctx.json({ error: 'Check IDs, required fields, token assignments, and the 30-item limit.' }, { status: 400, schema: 'arc.Error' })
-  const saved = await ctx.kv<Settings>('state').put('settings', settings)
-  if (!saved) return ctx.json({ error: 'Settings could not be saved. Please retry.' }, { status: 503, schema: 'arc.Error' })
+  if (invalid) return ctx.json({ error: 'Check names, duplicate IDs, and ready key assignments. Limit: 30 users and 10 keys per user.' }, { status: 400, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const saved = await ctx.kv<Users>('state').put('users-v2', input)
+  if (!saved) return ctx.json({ error: 'Users could not be saved. Please retry.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
   return ctx.text('Saved', { headers: { 'cache-control': 'no-store' } })
+})
+app.get('/api/admin/catalog', async (ctx) => {
+  const mode = await ctx.config.get('ARC_MODE')
+  if (mode === 'preview') return ctx.json({ providers: [{ id: 'preview', display_name: 'Preview', models: [{ id: 'demo-fast', display_name: 'Demo fast', provider_id: 'preview' }, { id: 'demo-reasoning', display_name: 'Demo reasoning', provider_id: 'preview' }] }], connections: [] }, { schema: 'arc.Catalog', headers: { 'cache-control': 'no-store' } })
+  const token = await ctx.secret.get('FASTLY_API_TOKEN')
+  if (!token) return ctx.json({ error: 'Configure FASTLY_API_TOKEN in the service Secret Store.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const providers = await ctx.fetch('https://api.fastly.com/ai-runtime-control/v1/providers', { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<Providers>('arc.Providers')
+  const connections = await ctx.fetch('https://api.fastly.com/ai-runtime-control/v1/provider-connections', { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<Connections>('arc.Connections')
+  if (providers.data === undefined || connections.data === undefined) return ctx.json({ error: 'ARC discovery failed. Check the management token and account access.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  return ctx.json({ providers: providers.data, connections: connections.data }, { schema: 'arc.Catalog', headers: { 'cache-control': 'no-store' } })
+})
+app.post('/api/admin/keys/list', async (ctx) => {
+  const input = await ctx.req.json<PageInput>('arc.PageInput')
+  // The browser percent-encodes opaque cursors; accept only query-safe characters.
+  let invalidCursor = input.cursor.length > 1024
+  for (let i = 0; i < 1024 && i < input.cursor.length; i++) {
+    const c = input.cursor[i]
+    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '-' || c === '_' || c === '.' || c === '~' || c === '%')) invalidCursor = true
+  }
+  if (invalidCursor) return ctx.json({ error: 'Invalid cursor.' }, { status: 400, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const mode = await ctx.config.get('ARC_MODE')
+  const vault = await ctx.kv<Credentials>('state').get('credentials-v2')
+  const credentials: Credential[] = vault === undefined ? [] : vault.keys
+  if (mode === 'preview') {
+    const keys: KeyView[] = []
+    for (let i = 0; i < 100 && i < credentials.length; i++) {
+      const key = credentials[i]
+      keys[keys.length] = { id: key.id, name: key.name, provider: key.provider, model: key.model, ready: !!key.value }
+    }
+    return ctx.json({ keys, nextCursor: '' }, { schema: 'arc.Keys', headers: { 'cache-control': 'no-store' } })
+  }
+  const token = await ctx.secret.get('FASTLY_API_TOKEN')
+  if (!token) return ctx.json({ error: 'Configure FASTLY_API_TOKEN in the service Secret Store.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const page = await ctx.fetch(`https://api.fastly.com/ai-runtime-control/v1/keys?limit=100&cursor=${input.cursor}`, { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<KeyPage>('arc.KeyPage')
+  if (page.data === undefined) return ctx.json({ error: 'ARC key listing failed. Check the management token and account access.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const keys: KeyView[] = []
+  for (let i = 0; i < 100 && i < page.data.length; i++) {
+    const item = page.data[i]
+    let ready = false
+    for (let j = 0; j < 100 && j < credentials.length; j++) {
+      const key = credentials[j]
+      if (key.id === item.id && key.value && key.model === item.model && key.provider === item.provider) ready = true
+    }
+    keys[keys.length] = { id: item.id, name: item.name, provider: item.provider, model: item.model, ready }
+  }
+  return ctx.json({ keys, nextCursor: page.meta === undefined ? '' : page.meta.next_cursor || '' }, { schema: 'arc.Keys', headers: { 'cache-control': 'no-store' } })
+})
+// Create and rotate are deliberately separate commands. No browser snapshot can
+// overwrite a credential, and no management response containing one is forwarded.
+app.post('/api/admin/keys', async (ctx) => {
+  const input = await ctx.req.json<KeyInput>('arc.KeyInput')
+  if (!input.name.trim() || input.name.length > 100 || !input.provider.trim() || input.provider.length > 150 || !input.model.trim() || input.model.length > 200) return ctx.json({ error: 'Name, provider, and model are required.' }, { status: 400, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const mode = await ctx.config.get('ARC_MODE')
+  if (mode === 'preview') return ctx.json({ error: 'Preview uses seeded keys. Create and rotate are available after connecting ARC.' }, { status: 409, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const token = await ctx.secret.get('FASTLY_API_TOKEN')
+  if (!token) return ctx.json({ error: 'Configure FASTLY_API_TOKEN in the service Secret Store.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const before = await ctx.kv<Credentials>('state').get('credentials-v2')
+  if (before !== undefined && before.keys.length >= 100) return ctx.json({ error: 'This demo stores at most 100 credentials.' }, { status: 409, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const created = await ctx.fetch('https://api.fastly.com/ai-runtime-control/v1/keys', { method: 'POST', headers: { 'Fastly-Key': token }, json: input, schema: 'arc.KeyInput', timeoutMs: 15000 }).json<KeyResult>('arc.KeyResult')
+  if (!created.id || !created.name || !created.provider || !created.model || !created.access_token) return ctx.json({ error: 'ARC did not return a usable key. Refresh the list before retrying; creation may have succeeded.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const latest = await ctx.kv<Credentials>('state').get('credentials-v2')
+  const keys: Credential[] = latest === undefined ? [] : latest.keys
+  keys[keys.length] = { id: created.id, name: created.name, provider: created.provider, model: created.model, value: created.access_token }
+  const saved = await ctx.kv<Credentials>('state').put('credentials-v2', { keys })
+  if (!saved) return ctx.json({ error: `ARC created key ${created.id}, but the credential could not be saved. Refresh the key list and rotate this key to recover. Do not create another copy.` }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  return ctx.text('Key created and stored.', { status: 201, headers: { 'cache-control': 'no-store' } })
+})
+app.post('/api/admin/keys/:id/rotate', async (ctx) => {
+  const id = ctx.param('id') || ''
+  let invalidId = !id || id.length > 100
+  for (let i = 0; i < 100 && i < id.length; i++) {
+    const c = id[i]
+    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '-' || c === '_')) invalidId = true
+  }
+  if (invalidId) return ctx.json({ error: 'Invalid key ID.' }, { status: 400, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const mode = await ctx.config.get('ARC_MODE')
+  if (mode === 'preview') return ctx.json({ error: 'Preview uses seeded keys. Create and rotate are available after connecting ARC.' }, { status: 409, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const token = await ctx.secret.get('FASTLY_API_TOKEN')
+  if (!token) return ctx.json({ error: 'Configure FASTLY_API_TOKEN in the service Secret Store.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  // ARC immediately invalidates the old token. Clear the local copy first so a
+  // failed remote call or local save cannot leave a credential presented as ready.
+  const vault = await ctx.kv<Credentials>('state').get('credentials-v2')
+  const pending: Credential[] = vault === undefined ? [] : vault.keys
+  let found = false
+  for (let i = 0; i < 100 && i < pending.length; i++) { if (pending[i].id === id) { pending[i].value = ''; found = true } }
+  if (!found && pending.length >= 100) return ctx.json({ error: 'This demo stores at most 100 credentials.' }, { status: 409, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const cleared = await ctx.kv<Credentials>('state').put('credentials-v2', { keys: pending })
+  if (!cleared) return ctx.json({ error: 'Could not prepare rotation. ARC was not called.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const rotated = await ctx.fetch(`https://api.fastly.com/ai-runtime-control/v1/keys/${id}/rotate`, { method: 'POST', headers: { 'Fastly-Key': token, 'content-type': 'application/json' }, body: '{}', timeoutMs: 15000 }).json<KeyResult>('arc.KeyResult')
+  if (rotated.id !== id || !rotated.name || !rotated.provider || !rotated.model || !rotated.access_token) return ctx.json({ error: 'Rotation did not return a usable credential. This key is unavailable locally. Refresh and rotate again to recover.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const latest = await ctx.kv<Credentials>('state').get('credentials-v2')
+  const keys: Credential[] = latest === undefined ? [] : latest.keys
+  let replaced = false
+  for (let i = 0; i < 100 && i < keys.length; i++) {
+    if (keys[i].id === id) { keys[i] = { id, name: rotated.name, provider: rotated.provider, model: rotated.model, value: rotated.access_token }; replaced = true }
+  }
+  if (!replaced) keys[keys.length] = { id, name: rotated.name, provider: rotated.provider, model: rotated.model, value: rotated.access_token }
+  const saved = await ctx.kv<Credentials>('state').put('credentials-v2', { keys })
+  if (!saved) return ctx.json({ error: 'ARC rotated the key but local storage failed. The old token is invalid. Rotate this key again to recover.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  return ctx.text('Key rotated and stored.', { headers: { 'cache-control': 'no-store' } })
 })
 app.post('/api/chat', async (ctx) => {
   const input = await ctx.req.json<Chat>('arc.Chat')
-  const settings = await ctx.kv<Settings>('state').get('settings')
-  if (settings === undefined) return ctx.json({ error: 'Add a user, virtual key, and model in Admin first.' }, { status: 409, schema: 'arc.Error' })
-  let tokenId = ''
-  let key = ''
-  let modelAllowed = false
-  for (let i = 0; i < 30 && i < settings.users.length; i++) {
-    if (settings.users[i].id === input.userId && settings.users[i].active) tokenId = settings.users[i].tokenId
+  const stored = await ctx.kv<Users>('state').get('users-v2')
+  let allowed = false
+  if (stored !== undefined) {
+    for (let i = 0; i < 30 && i < stored.users.length; i++) {
+      const user = stored.users[i]
+      if (user.id === input.userId && user.active) {
+        for (let j = 0; j < 10 && j < user.keyIds.length; j++) { if (user.keyIds[j] === input.keyId) allowed = true }
+      }
+    }
   }
-  for (let i = 0; i < 30 && i < settings.tokens.length; i++) {
-    if (settings.tokens[i].id === tokenId && settings.tokens[i].active) key = settings.tokens[i].value
+  if (!allowed) return ctx.json({ error: 'This user is not assigned to that virtual key. Refresh chat after admin changes.' }, { status: 403, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const vault = await ctx.kv<Credentials>('state').get('credentials-v2')
+  let value = ''
+  let model = ''
+  if (vault !== undefined) {
+    for (let i = 0; i < 100 && i < vault.keys.length; i++) { if (vault.keys[i].id === input.keyId) { value = vault.keys[i].value; model = vault.keys[i].model } }
   }
-  for (let i = 0; i < 30 && i < settings.models.length; i++) {
-    if (settings.models[i].id === input.model && settings.models[i].active) modelAllowed = true
-  }
-  if (!key || !modelAllowed) return ctx.json({ error: 'This user needs an active virtual key and model.' }, { status: 403, schema: 'arc.Error' })
+  if (!value) return ctx.json({ error: 'This key needs to be created or rotated in Admin before use.' }, { status: 409, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
   let invalid = input.messages.length < 1 || input.messages.length > 20 || input.sessionId.length > 100
   let size = 0
   for (let i = 0; i < 20 && i < input.messages.length; i++) {
     size += input.messages[i].content.length
     if (!input.messages[i].content.trim() || input.messages[i].content.length > 8000) invalid = true
   }
-  if (invalid || size > 24000 || input.messages[input.messages.length - 1].role !== 'user') return ctx.json({ error: 'Keep a conversation to 20 messages and each message below 8,000 characters.' }, { status: 400, schema: 'arc.Error' })
+  if (invalid || size > 24000 || input.messages[input.messages.length - 1].role !== 'user') return ctx.json({ error: 'Keep a conversation to 20 messages and each message below 8,000 characters.' }, { status: 400, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
   const mode = await ctx.config.get('ARC_MODE')
-  if (mode === 'preview') return ctx.text('{"choices":[{"message":{"role":"assistant","content":"**You’re connected to the playground.**\\n\\nThis is a local preview response. Switch users, try a different model, or open Admin to manage your virtual keys.\\n\\nWhen you connect your ARC endpoint, real model responses will appear here."}}],"preview":true}', { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
-  const url = await ctx.config.get('ARC_URL')
-  if (!url) return ctx.json({ error: 'Set ARC_URL to your ARC chat-completions endpoint.' }, { status: 503, schema: 'arc.Error' })
-  // OpenAI-compatible, non-streaming transport. ARC owns routing and provider policy.
-  // Session correlation is local until the account-specific ARC header is confirmed.
-  return ctx.fetch(url, { method: 'POST', timeoutMs: 25000, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, json: { model: input.model, messages: input.messages, stream: false }, schema: 'arc.Completion' })
+  if (mode === 'preview') return ctx.text('{"choices":[{"message":{"role":"assistant","content":"**Local preview.**\\n\\nYour selected user and virtual key determine the model. Connect ARC to receive live responses."}}],"preview":true}', { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
+  // Model and credential come from server storage, never a browser-supplied model.
+  // The local session UUID is not sent; messages carry conversation context.
+  return ctx.fetch('https://arc.fastly.app/v1/chat/completions', { method: 'POST', timeoutMs: 25000, headers: { authorization: `Bearer ${value}`, 'content-type': 'application/json' }, json: { model, messages: input.messages, stream: false }, schema: 'arc.Completion' })
 })
+app.error(async (error, ctx, next) => ctx.json({ error: 'The request could not be completed. For key creation or rotation, refresh the key list before retrying; ARC may already have processed it.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } }))
 export default app
