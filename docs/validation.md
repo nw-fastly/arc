@@ -1,5 +1,21 @@
 # ARC validation
 
+## Pass 3: Activity
+
+Read-only Activity adds time/key filters, request/session/input/output totals and paginated session logs with provider and firewall metadata. Refresh fixes a new UTC window and resets pagination. Raw logs render as text, are not persisted, and leave the DOM when admin is locked. Metrics and sessions have separate loading, empty and error states; preview is explicit. Successful bodies and headers pass through from ARC, preserving optional firewall fields and arbitrary log attributes.
+
+Executed checks:
+
+- Typecheck and Native Fastly build passed.
+- **48/48 Native harness cases passed**, including activity authentication, preview, invalid filters, missing token, resource allowlist, live metrics, encoded cursors and access denial.
+- **6/6 focused handler tests passed** for fixed GET endpoints, exact filters, injection rejection, independent/sanitized failures, preview and no KV writes.
+- Viceroy smoke passed with the compiled artifact, actual outgoing activity GETs, filter/cursor forwarding, response cache-header preservation and existing chat/key/policy checks.
+- Chromium against that **Native artifact** passed totals aggregation, stable-range pagination, refresh reset, key filtering, absent versus empty firewall outcomes, inert HTML in logs, independent 403/429 failures, malformed metrics, empty and preview states, mobile overflow and lock cleanup.
+
+Reproduce with `npm run test:activity`, `npm run typecheck`, `npm test`, `npm run build`, then `VICEROY_BIN=/path/to/viceroy npm run test:native`. Optional browser evidence: `VICEROY_BIN=/path/to/viceroy PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/activity.browser.mjs`.
+
+No live ARC account calls or deployment. Activity responses follow the supplied API contracts; account entitlement, data retention and real-world logging availability remain upstream concerns.
+
 ## Pass 2: key policies
 
 Implemented an authenticated policy router and a two-section admin editor:
@@ -45,7 +61,7 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/policies.bro
 
 PR #3 introduced local personas and multi-key assignments, discovery, paginated key listing, ARC key creation/rotation, credential separation, and the chat overview. Its 29-case harness, typecheck, Native build, Viceroy, and chat/admin browser checks passed at that point. Pass 2 expands the same harness and Native smoke.
 
-General key metadata editing/deletion remain pass 1 follow-ups. Activity remains pass 3. Existing root `fastly.toml`, deploy command, and static backend configuration are retained.
+General key metadata editing/deletion remain pass 1 follow-ups. Activity is covered by pass 3 above. Existing root `fastly.toml`, deploy command, and static backend configuration are retained.
 
 ## Boundaries
 

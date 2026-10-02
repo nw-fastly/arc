@@ -9,6 +9,7 @@ export interface KeyResult { id?: string; name?: string; provider?: string; mode
 export interface KeyPage { data?: Key[]; meta?: { next_cursor?: string | null } }
 export interface KeyView { id: string; name: string; provider: string; model: string; ready: boolean }
 export interface Keys { keys: KeyView[]; nextCursor: string }
+export interface ActivityInput { key: string; from: string; to: string; cursor: string }
 export interface PageInput { cursor: string }
 export interface Model { id: string; display_name: string; provider_id: string }
 export interface Provider { id: string; display_name: string; models: Model[] }
@@ -40,6 +41,6 @@ export default defineSchemaRegistry({ schemas: {
   'arc.KeyPage': schema<KeyPage>(), 'arc.Keys': schema<Keys>(), 'arc.PageInput': schema<PageInput>(),
   'arc.Providers': schema<Providers>(), 'arc.Connections': schema<Connections>(), 'arc.Catalog': schema<Catalog>(),
   'arc.Bootstrap': schema<Bootstrap>(), 'arc.Chat': schema<Chat>(), 'arc.Completion': schema<Completion>(),
-  'arc.Error': schema<ErrorBody>(),
+  'arc.Error': schema<ErrorBody>(), 'arc.ActivityInput': schema<ActivityInput>(),
   'arc.PolicyPatch': schema<PolicyPatch>(), 'arc.PolicyPreview': schema<PolicyPreview>(), 'arc.Failover': schema<FailoverPolicy>(),
 } })

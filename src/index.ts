@@ -2,6 +2,7 @@ import { Pulse } from '@pulse-compute/pulse'
 import type { Users, Credentials, Credential, KeyResult, KeyPage, KeyView, KeyInput, PageInput, Providers, Connections, PublicUser, Key, Chat } from './schemas.js'
 import assets from './assets.generated.js'
 import policies from './policies.js'
+import activity from './activity.js'
 const app = new Pulse({ auto: true })
 app.mount('/', assets)
 app.get('/health', async (ctx) => ctx.text('ok'))
@@ -39,6 +40,7 @@ app.use('/api/admin/*', async (ctx, next) => {
   return next()
 })
 app.mount('/api/admin/keys', policies)
+app.mount('/api/admin/activity', activity)
 app.get('/api/admin/users', async (ctx) => {
   const stored = await ctx.kv<Users>('state').get('users-v2')
   return ctx.json(stored === undefined ? { users: [] } : stored, { schema: 'arc.Users', headers: { 'cache-control': 'no-store' } })

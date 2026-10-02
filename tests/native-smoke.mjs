@@ -14,6 +14,7 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
   if (!process.env.VICEROY_BIN) throw new Error('Set VICEROY_BIN to your Viceroy executable. Build first with npm run build.')
   const folder = await mkdtemp(join(tmpdir(), 'arc-native-'))
   let seen = [], logs = ''
+  const activityControl = { metricsStatus: 200, sessionsStatus: 200, malformed: false }
   const remoteKeys = [{ id: demoKey.id, name: demoKey.name, provider: demoKey.provider, model: demoKey.model }]
   let rotations = 0
   let failoverPolicy = { targets: [], timeout_enabled: false, rate_limit_429_enabled: false, server_error_5xx_enabled: false }
@@ -24,6 +25,15 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
     res.setHeader('content-type', 'application/json')
     res.setHeader('cache-control', 'no-store')
     const base = '/ai-runtime-control/v1'
+    if (req.url.startsWith(base + '/usage-metrics?')) {
+      res.statusCode = activityControl.metricsStatus
+      return res.end(JSON.stringify({ data: activityControl.malformed ? [{ quantity: -1 }] : [{ date: '2026-10-01', usage_type: 'requests', quantity: 12 }, { date: '2026-10-01', usage_type: 'requests', quantity: 3 }, { date: '2026-10-01', usage_type: 'input_tokens', quantity: 512 }, { date: '2026-10-01', usage_type: 'output_tokens', quantity: 128 }], meta: { total: 4 } }))
+    }
+    if (req.url.startsWith(base + '/sessions?')) {
+      res.statusCode = activityControl.sessionsStatus
+      const query = new URL(req.url, 'http://fixture').searchParams, second = query.get('cursor') === 'next/+=', empty = query.get('key') === 'empty-key'
+      return res.end(JSON.stringify({ data: empty ? [] : [{ id: second ? 'session-2' : 'session-1', virtual_key_id: 'key-1', virtual_key_name: 'Fast model', model: 'fixture-fast', primary_provider: 'conn-primary', provider: 'conn-actual', requests: 1, input_tokens: 512, output_tokens: 128, violations: 0, firewall_enabled: true, ...(second ? { firewall_outcome: '', firewall_stage: 'request' } : {}), created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-01T12:00:01Z', logs: [{ request: '<script>window.activityInjected=true</script>', response: 'Fixture response', attrs: { trace: 'demo' } }] }], meta: { total: empty ? 0 : 2, next_cursor: second || empty ? null : 'next/+=', prev_cursor: second ? 'start' : null } }))
+    }
     if (req.url === base + '/providers') return res.end(JSON.stringify({ data: [{ id: 'fixture', display_name: 'Fixture provider', models: [{ id: 'fixture-fast', display_name: 'Fast', provider_id: 'fixture' }, { id: 'fixture-other', display_name: 'Other', provider_id: 'fixture' }] }] }))
     if (req.url === base + '/provider-connections') return res.end(JSON.stringify({ data: [{ id: 'conn-1', name: 'custom', models: ['custom-fast'], auth_type: 'api-key', secret_id: 'hidden' }] }))
     if (req.method === 'GET' && req.url.startsWith(base + '/keys?')) return res.end(JSON.stringify({ data: remoteKeys, meta: { next_cursor: null } }))
@@ -74,7 +84,7 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
       await new Promise(resolve => setTimeout(resolve, 100))
     }
     if (!ready) throw new Error(`Viceroy startup timed out: ${logs}`)
-    return await callback({ base, seen })
+    return await callback({ base, seen, activityControl })
   } catch (error) { console.error(logs); throw error } finally {
     processHandle.kill('SIGTERM')
     await new Promise(resolve => { if (processHandle.exitCode !== null) return resolve(); processHandle.once('exit', resolve); const timer = setTimeout(() => { processHandle.kill('SIGKILL'); resolve() }, 2000); timer.unref() })
@@ -93,6 +103,15 @@ async function smoke() {
     assert.equal((await fetch(base + '/api/admin/users')).status, 401)
     const discovery = await read(await call('/api/admin/catalog', undefined, 'GET'))
     assert.equal(discovery.providers[0].id, 'fixture'); assert.equal(JSON.stringify(discovery).includes('hidden'), false)
+    const activityFilters = { key: '', from: '2026-10-01T00:00:00.000Z', to: '2026-10-02T00:00:00.000Z', cursor: '' }
+    const metricsResponse = await call('/api/admin/activity/usage-metrics', activityFilters)
+    assert.equal(metricsResponse.status, 200); assert.equal(metricsResponse.headers.get('cache-control'), 'no-store')
+    assert.equal((await read(metricsResponse)).data[0].quantity, 12)
+    const sessionsResponse = await call('/api/admin/activity/sessions', { ...activityFilters, cursor: 'next%2F%2B%3D' })
+    assert.equal(sessionsResponse.status, 200); assert.equal((await read(sessionsResponse)).data[0].id, 'session-2')
+    const activityRequest = seen.find(r => r.path.includes('/sessions?'))
+    assert.equal(activityRequest.method, 'GET'); assert.equal(activityRequest.headers['fastly-key'], 'native-management-secret')
+    assert.equal(new URL(activityRequest.path, 'http://fixture').searchParams.get('cursor'), 'next/+=')
     const input = { name: 'New key', provider: 'fixture', model: 'fixture-other' }
     const creation = await call('/api/admin/keys', input); assert.equal(creation.status, 201); assert.equal(await creation.text(), 'Key created and stored.')
     const listed = await read(await call('/api/admin/keys/list', { cursor: '' })); assert.equal(listed.keys.find(k => k.id === 'key-2').ready, true)
@@ -129,7 +148,7 @@ async function smoke() {
     const disabled = { users: users.users.map(u => ({ ...u, active: false })) }
     assert.equal((await call('/api/admin/users', disabled, 'PUT')).status, 200)
     assert.equal((await call('/api/chat', chat)).status, 403)
-    console.log('Native Viceroy smoke passed: assets, auth, discovery, key creation/rotation, secret redaction, assignments, server-selected model, stale-user-save isolation, and independent key/failover policies.')
+    console.log('Native Viceroy smoke passed: assets, auth, discovery, key creation/rotation, secret redaction, assignments, server-selected model, stale-user-save isolation, independent key/failover policies, and filtered ARC activity.')
   }, { seed: true })
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await smoke()

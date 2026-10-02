@@ -7,10 +7,11 @@ A small chat demo built with **Pulse Native on Fastly Compute**. ARC owns provid
 - Local demo users with up to 10 assigned virtual keys each. Each key selects one provider and one model; the server resolves both the model and credential.
 - Password-protected admin for user CRUD, read-only provider/model/connection discovery, paginated ARC key listing, key creation, and key rotation.
 - Per-key policy editor for RPM/TPM, UTC expiry, AI Firewall, ARC spend-limit flag, and ordered failover, with independent saves.
+- Read-only Activity tab with usage totals, time/key filters, paginated sessions, actual provider and firewall metadata, and expandable request/response logs.
 - Virtual credentials remain server-side. Neither public nor authenticated admin responses return their values.
 - The same native Compute service serves the UI and API.
 
-**Pulse compatibility:** Packages remain pinned to `1.0.0-beta.5`. A narrow Native-only declaration in `src/pulse-native-fetch.d.ts` types the schema-backed PATCH/PUT requests already verified by the Native harness and Viceroy. Remove it when the upstream fetch types include these verbs. General key metadata editing and deletion remain pass 1 follow-ups; Activity remains pass 3.
+**Pulse compatibility:** Packages remain pinned to `1.0.0-beta.5`. A narrow Native-only declaration in `src/pulse-native-fetch.d.ts` types the schema-backed PATCH/PUT requests already verified by the Native harness and Viceroy. Remove it when the upstream fetch types include these verbs. General key metadata editing and deletion remain pass 1 follow-ups.
 
 ![ARC chat playground](docs/screenshots/chat.png)
 
@@ -121,3 +122,11 @@ VICEROY_BIN=/path/to/viceroy npm run test:native
 ```
 
 Pulse packages remain pinned to the published `1.0.0-beta.5` release. `public/` is frontend source; `scripts/embed-assets.mjs` generates static routes. Edit source assets, not generated files. See [validation](docs/validation.md) for executed checks and the Native typing compatibility boundary.
+
+## Activity
+
+Open **Admin → Activity** for request/session and input/output token totals, plus recent sessions. Choose the last hour, 24 hours or 7 days and optionally a virtual key ID (loaded keys are suggested; other IDs can be entered). Refresh explicitly to apply filters and restart pagination. Pages share a fixed UTC range and show 25 sessions at a time; metrics cover the entire selected range, not just the current session page.
+
+Expand a session to see its actual and originally requested providers, firewall metadata, token counts and raw logs. An absent firewall result is kept distinct from an empty value. Metrics and sessions fail independently; unavailable data is never shown as zero. Preview clearly reports that live activity is unavailable.
+
+These are ARC session records, not browser conversation IDs. Logs may contain sensitive prompt/response content. The app reads them only through authenticated admin routes, renders them as text, and never stores them in KV or browser storage. Successful reads stream ARC's body and response headers unchanged, including upstream cache directives; admin requests use POST and the browser uses `cache: no-store`. No polling, export, model creation or new local logging pipeline is included.

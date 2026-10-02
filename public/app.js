@@ -108,14 +108,15 @@ async function reload() {
   finally { adminBusy = false; setAdminBusy(false) }
 }
 function setAdminBusy(busy) { main.querySelectorAll('button').forEach(button => { button.disabled = busy || button.dataset.unavailable === 'true' }) }
-const tabInfo = { users: ['Users', 'Local demo personas and their assigned model keys.', 'user'], keys: ['Virtual keys', 'Each ARC key selects one provider and one model.', 'virtual key'] }
+const tabInfo = { users: ['Users', 'Local demo personas and their assigned model keys.', 'user'], keys: ['Virtual keys', 'Each ARC key selects one provider and one model.', 'virtual key'], activity: ['Activity', 'Usage and session logs from ARC.', ''] }
 function renderAdmin() {
-  main.innerHTML = `<div class="admin-heading"><div><div class="eyebrow">ARC PLAYGROUND</div><h1>Admin</h1><p class="subtext">Users and virtual keys</p></div><div class="row-actions"><button class="secondary" id="refresh">Refresh</button><button class="secondary" id="logout">Lock admin</button></div></div><div class="admin-layout"><nav class="tabs" aria-label="Admin sections" id="tabs"></nav><section><div id="admin-errors"></div><div class="panel"><div class="panel-top"><div><h2 id="panel-title"></h2><p id="panel-sub"></p></div><button class="primary" id="add-item"></button></div><div class="table-wrap" id="table"></div><button class="text-button" id="more" hidden>Load more keys</button></div><p class="admin-note" id="admin-note"></p><div class="notice" id="notice" role="status"></div></section></div><dialog class="modal" id="editor"></dialog>`
-  $('#logout').onclick = () => { adminPassword = ''; settings = { users: [] }; keys = []; catalog = { providers: [], connections: [] }; startAdmin() }
+  main.innerHTML = `<div class="admin-heading"><div><div class="eyebrow">ARC PLAYGROUND</div><h1>Admin</h1><p class="subtext">Users, virtual keys and activity</p></div><div class="row-actions"><button class="secondary" id="refresh">Refresh</button><button class="secondary" id="logout">Lock admin</button></div></div><div class="admin-layout"><nav class="tabs" aria-label="Admin sections" id="tabs"></nav><section><div id="admin-errors"></div><div class="panel"><div class="panel-top"><div><h2 id="panel-title"></h2><p id="panel-sub"></p></div><button class="primary" id="add-item"></button></div><div class="table-wrap" id="table"></div><button class="text-button" id="more" hidden>Load more keys</button></div><p class="admin-note" id="admin-note"></p><div class="notice" id="notice" role="status"></div></section></div><dialog class="modal" id="editor"></dialog>`
+  $('#logout').onclick = () => { adminPassword = ''; settings = { users: [] }; keys = []; catalog = { providers: [], connections: [] }; activeTab = 'users'; startAdmin() }
   $('#refresh').onclick = reload
   for (const [tab, info] of Object.entries(tabInfo)) { const button = node('button', `tab ${tab === activeTab ? 'active' : ''}`, info[0]); button.onclick = () => { activeTab = tab; renderAdmin() }; $('#tabs').append(button) }
   const [title, sub, noun] = tabInfo[activeTab]
   $('#panel-title').textContent = title; $('#panel-sub').textContent = sub; $('#add-item').textContent = `+ Add ${noun}`; $('#add-item').onclick = () => editItem()
+  if (activeTab === 'activity') { $('#add-item').hidden = true; renderActivity(); return }
   $('#add-item').dataset.unavailable = String(activeTab === 'users' ? settings.users.length >= 30 : !catalog.providers.length && !catalog.connections.length)
   $('#add-item').disabled = $('#add-item').dataset.unavailable === 'true'
   $('#admin-note').textContent = activeTab === 'users' ? 'Users are demo personas, not sign-in accounts. Assign up to 10 ready keys per user. Disabling a user stops new chat requests after KV propagation.' : 'Credentials stay on the server. Rotate an existing key to make it available here; rotation also invalidates its token in other applications. Open Policies for limits, expiry, firewall, spend control, and failover. Key metadata editing and deletion currently require Fastly.'
@@ -324,3 +325,97 @@ async function editPolicies(item) {
   dialog.showModal(); await Promise.allSettled([loadPolicy(), loadFailover()])
 }
 if (isAdmin) startAdmin(); else startChat()
+
+
+function renderActivity() {
+  const root = $('#table'); root.className = 'activity'
+  root.innerHTML = `<form class="activity-filters" id="activity-filters"><label class="field">Time range<select name="range"><option value="1">Last hour</option><option value="24" selected>Last 24 hours</option><option value="168">Last 7 days</option></select></label><label class="field">Virtual key<input name="key" list="activity-keys" placeholder="All keys" maxlength="100" pattern="[A-Za-z0-9_-]*"><datalist id="activity-keys"></datalist></label><button class="primary" type="submit">Refresh activity</button></form><p class="minor" id="activity-range" role="status"></p><section aria-label="Usage metrics"><h3>Usage</h3><div id="activity-metrics" aria-live="polite"></div></section><section aria-label="Session logs"><h3>Recent sessions</h3><div id="activity-sessions" aria-live="polite"></div><div class="row-actions" id="activity-pages"></div></section>`
+  for (const key of keys) { const option = node('option'); option.value = key.id; option.label = key.name; $('#activity-keys', root).append(option) }
+  $('#admin-note').textContent = 'Activity belongs to ARC virtual keys, not local users or browser conversations. Logs may contain prompts and responses. They are shown only in this admin view and are not saved by the playground. Refresh manually for new data.'
+  const form = $('#activity-filters', root), metrics = $('#activity-metrics', root), sessions = $('#activity-sessions', root), pages = $('#activity-pages', root)
+  let generation = 0, sessionGeneration = 0, filters, controller
+  const number = value => Number.isSafeInteger(value) && value >= 0
+  const format = value => value.toLocaleString()
+  const message = (target, text) => target.replaceChildren(node('p', 'empty', text))
+  const validPage = page => page && Array.isArray(page.data) && page.meta && typeof page.meta === 'object'
+  async function read(resource, cursor = '') {
+    return adminApi(`activity/${resource}`, { method: 'POST', body: JSON.stringify({ ...filters, cursor: encodeURIComponent(cursor) }), signal: controller.signal })
+  }
+  async function loadMetrics(version) {
+    message(metrics, 'Loading usage…')
+    try {
+      const page = await read('usage-metrics')
+      if (!root.isConnected || version !== generation) return
+      if (!validPage(page)) throw Error('ARC returned an unreadable usage response. Refresh to try again.')
+      if (page.preview === true) { message(metrics, 'Local preview · usage is available after connecting to ARC.'); return }
+      const totals = { requests: 0, sessions: 0, input_tokens: 0, output_tokens: 0 }
+      for (const row of page.data) {
+        if (!row || !Object.hasOwn(totals, row.usage_type) || !number(row.quantity)) throw Error('ARC returned invalid usage values. Totals are unavailable.')
+        totals[row.usage_type] += row.quantity
+        if (!number(totals[row.usage_type])) throw Error('Usage totals exceed the supported numeric range.')
+      }
+      if (number(page.meta.total) && page.meta.total > page.data.length) throw Error('ARC returned incomplete usage results. Choose a shorter time range or a specific key.')
+      metrics.replaceChildren()
+      const cards = node('div', 'metric-cards')
+      for (const [key, label] of Object.entries({ requests: 'Requests', sessions: 'Sessions', input_tokens: 'Input tokens', output_tokens: 'Output tokens' })) {
+        const card = node('div', 'metric-card'); card.append(node('span', 'minor', label), node('strong', '', format(totals[key]))); cards.append(card)
+      }
+      metrics.append(cards)
+      if (!page.data.length) metrics.append(node('p', 'minor', 'No usage recorded in this range.'))
+    } catch (error) { if (root.isConnected && version === generation && error.name !== 'AbortError') showError(metrics, error.message) }
+  }
+  function sessionCard(item) {
+    const card = node('details', 'session-card'), summary = node('summary'), heading = node('div', 'session-heading')
+    heading.append(node('strong', '', item.virtual_key_name || item.virtual_key_id), node('span', 'minor', `${item.model} · ${new Date(item.created_at).toLocaleString()}`))
+    const status = !item.firewall_enabled ? 'Firewall disabled' : Object.hasOwn(item, 'firewall_outcome') ? `Firewall: ${item.firewall_outcome === '' ? '(empty outcome)' : item.firewall_outcome}` : 'Firewall enabled · no outcome recorded'
+    summary.append(heading, node('span', 'badge', status)); card.append(summary)
+    const detail = node('div', 'session-detail')
+    detail.append(node('p', 'minor', `Session ${item.id}`), node('p', '', `Key: ${item.virtual_key_id}`), node('p', '', `Served by: ${item.provider}`))
+    if (item.primary_provider !== undefined) detail.append(node('p', '', `Originally requested: ${item.primary_provider}`))
+    detail.append(node('p', '', `${format(item.requests)} requests · ${format(item.input_tokens)} input tokens · ${format(item.output_tokens)} output tokens · ${format(item.violations)} violations`))
+    // Absence differs from an explicitly empty firewall value.
+    for (const [key, label] of Object.entries({ firewall_outcome: 'Outcome', firewall_stage: 'Stage', firewall_policy: 'Policy', firewall_incomplete_reason: 'Incomplete reason' })) {
+      if (Object.hasOwn(item, key)) detail.append(node('p', 'minor', `${label}: ${item[key] === '' ? '(empty)' : item[key]}`))
+    }
+    if (!item.logs.length) detail.append(node('p', 'minor', 'No request/response logs recorded.'))
+    item.logs.forEach((log, index) => {
+      const entry = node('details', 'log-entry'); entry.append(node('summary', '', `Request / response ${index + 1}`))
+      for (const [key, label] of Object.entries({ request: 'Request', response: 'Response', attrs: 'Attributes' })) {
+        if (!Object.hasOwn(log, key)) continue
+        entry.append(node('h4', '', label), node('pre', '', typeof log[key] === 'string' ? log[key] : JSON.stringify(log[key], null, 2)))
+      }
+      detail.append(entry)
+    })
+    card.append(detail); return card
+  }
+  async function loadSessions(version, cursor = '') {
+    const requestVersion = ++sessionGeneration
+    message(sessions, 'Loading sessions…'); pages.replaceChildren()
+    try {
+      const page = await read('sessions', cursor)
+      if (!root.isConnected || version !== generation || requestVersion !== sessionGeneration) return
+      if (!validPage(page) || page.data.length > 25 || ['next_cursor', 'prev_cursor'].some(key => page.meta[key] != null && (typeof page.meta[key] !== 'string' || encodeURIComponent(page.meta[key]).length > 1024))) throw Error('ARC returned an unreadable session page. Refresh to restart pagination.')
+      if (page.preview === true) { message(sessions, 'Local preview · session logs are available after connecting to ARC.'); return }
+      for (const item of page.data) {
+        if (!item || ['id', 'virtual_key_id', 'model', 'provider', 'created_at'].some(key => typeof item[key] !== 'string') || !Number.isFinite(Date.parse(item.created_at)) || ['requests', 'input_tokens', 'output_tokens', 'violations'].some(key => !number(item[key])) || typeof item.firewall_enabled !== 'boolean' || !Array.isArray(item.logs) || item.logs.some(log => !log || typeof log !== 'object')) throw Error('ARC returned an invalid session record. Refresh to try again.')
+      }
+      sessions.replaceChildren(...page.data.map(sessionCard))
+      if (!page.data.length) message(sessions, 'No sessions recorded in this range.')
+      for (const [key, label] of [['prev_cursor', 'Previous page'], ['next_cursor', 'Next page']]) {
+        const button = node('button', 'secondary', label); button.disabled = !page.meta[key]; button.onclick = () => loadSessions(version, page.meta[key]); pages.append(button)
+      }
+      pages.append(node('span', 'minor', `${page.data.length} sessions on this page${number(page.meta.total) ? ` · ${format(page.meta.total)} matching` : ''}`))
+    } catch (error) { if (root.isConnected && version === generation && requestVersion === sessionGeneration && error.name !== 'AbortError') showError(sessions, error.message) }
+  }
+  function refresh() {
+    if (!form.reportValidity()) return
+    controller?.abort(); controller = new AbortController(); const version = ++generation
+    const to = new Date(), from = new Date(to.getTime() - Number(form.elements.range.value) * 3600000)
+    filters = { key: form.elements.key.value.trim(), from: from.toISOString(), to: to.toISOString() }
+    $('#activity-range', root).textContent = `${filters.from} — ${filters.to} · UTC${filters.key ? ` · key ${filters.key}` : ' · all keys'}`
+    loadMetrics(version); loadSessions(version)
+  }
+  form.onsubmit = event => { event.preventDefault(); refresh() }
+  $('#refresh').onclick = refresh
+  refresh()
+}

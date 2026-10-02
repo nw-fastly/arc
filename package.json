@@ -15,6 +15,7 @@
     "deploy": "fastly compute publish",
     "typecheck": "tsc --noEmit",
     "test:native": "node tests/native-smoke.mjs",
+    "test:activity": "node --test tests/activity.test.mjs",
     "test:policies": "node --test tests/policies.test.mjs"
   },
   "dependencies": {

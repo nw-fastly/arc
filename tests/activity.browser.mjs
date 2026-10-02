@@ -1,0 +1,65 @@
+// Optional real Native browser check. Build first; supply Viceroy and Playwright.
+import assert from 'node:assert/strict'
+import { withNativeServer } from './native-smoke.mjs'
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
+try {
+  await withNativeServer(async ({ base, seen, activityControl }) => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } }), errors = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.goto(base + '/admin'); await page.locator('#password').fill('local-admin-only'); await page.getByRole('button', { name: 'Open admin' }).click()
+    await page.getByRole('button', { name: 'Activity', exact: true }).click()
+    const metrics = page.locator('#activity-metrics'), sessions = page.locator('#activity-sessions')
+    await metrics.getByText('15', { exact: true }).waitFor()
+    await sessions.getByText('Firewall enabled · no outcome recorded', { exact: true }).waitFor()
+    await sessions.locator('.session-card > summary').click()
+    await sessions.getByText('Served by: conn-actual', { exact: true }).waitFor()
+    await sessions.getByText('Originally requested: conn-primary', { exact: true }).waitFor()
+    await sessions.getByText('Request / response 1', { exact: true }).click()
+    await sessions.getByText('<script>window.activityInjected=true</script>', { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.activityInjected), undefined)
+    await page.getByRole('button', { name: 'Next page', exact: true }).click()
+    await sessions.getByText('Firewall: (empty outcome)', { exact: true }).waitFor()
+    const requests = seen.filter(r => r.path.includes('/sessions?'))
+    const first = new URL(requests[0].path, base), second = new URL(requests[1].path, base)
+    assert.equal(second.searchParams.get('from'), first.searchParams.get('from')); assert.equal(second.searchParams.get('cursor'), 'next/+=')
+    await page.getByRole('button', { name: 'Refresh activity', exact: true }).click()
+    await sessions.getByText('Firewall enabled · no outcome recorded', { exact: true }).waitFor()
+    assert.equal(new URL(seen.filter(r => r.path.includes('/sessions?')).at(-1).path, base).searchParams.get('cursor'), '')
+    activityControl.sessionsStatus = 403
+    await page.getByRole('button', { name: 'Refresh activity', exact: true }).click()
+    await sessions.getByRole('alert').waitFor(); await metrics.getByText('15', { exact: true }).waitFor()
+    assert.equal(await sessions.locator('.session-card').count(), 0)
+    activityControl.sessionsStatus = 200; activityControl.metricsStatus = 429
+    await page.getByRole('button', { name: 'Refresh activity', exact: true }).click()
+    await metrics.getByText('ARC activity is rate limited. Wait before refreshing.', { exact: true }).waitFor()
+    await sessions.getByText('Firewall enabled · no outcome recorded', { exact: true }).waitFor()
+    activityControl.metricsStatus = 200; activityControl.malformed = true
+    await page.getByRole('button', { name: 'Refresh activity', exact: true }).click()
+    await metrics.getByText('ARC returned invalid usage values. Totals are unavailable.', { exact: true }).waitFor()
+    activityControl.malformed = false
+    await page.getByLabel('Virtual key', { exact: true }).fill('empty-key')
+    await page.getByRole('button', { name: 'Refresh activity', exact: true }).click()
+    await sessions.getByText('No sessions recorded in this range.', { exact: true }).waitFor()
+    assert.equal(new URL(seen.filter(r => r.path.includes('/sessions?')).at(-1).path, base).searchParams.get('key'), 'empty-key')
+    await page.getByLabel('Virtual key', { exact: true }).fill(''); await page.getByRole('button', { name: 'Refresh activity', exact: true }).click()
+    await sessions.getByText('Firewall enabled · no outcome recorded', { exact: true }).waitFor()
+    await page.screenshot({ path: '/tmp/arc-activity-desktop.png', fullPage: true })
+    await page.setViewportSize({ width: 390, height: 844 })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+    await page.screenshot({ path: '/tmp/arc-activity-mobile.png', fullPage: true })
+    await page.getByRole('button', { name: 'Lock admin', exact: true }).click()
+    assert.equal(await page.locator('.session-card').count(), 0)
+    assert.deepEqual(errors, [])
+    await page.close()
+  }, { seed: true })
+  await withNativeServer(async ({ base, seen }) => {
+    const page = await browser.newPage()
+    await page.goto(base + '/admin'); await page.locator('#password').fill('local-admin-only'); await page.getByRole('button', { name: 'Open admin' }).click()
+    await page.getByRole('button', { name: 'Activity', exact: true }).click()
+    await page.getByText('Local preview · usage is available after connecting to ARC.', { exact: true }).waitFor()
+    assert.equal(seen.filter(r => /\/(sessions|usage-metrics)\?/.test(r.path)).length, 0)
+    await page.close()
+  }, { seed: true, mode: 'preview' })
+  console.log('Activity Native browser checks passed: totals, paging, filters, firewall absence/empty, safe log rendering, independent failures, malformed data, empty/preview, mobile and lock.')
+} finally { await browser.close() }

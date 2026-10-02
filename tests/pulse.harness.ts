@@ -10,6 +10,7 @@ const created = { id: 'key-2', name: 'Second key', provider: 'test-provider', mo
 const keyInput = { name: created.name, provider: created.provider, model: created.model }
 const keyList = { data: [{ id: key.id, name: key.name, provider: key.provider, model: key.model }, { id: created.id, name: created.name, provider: created.provider, model: created.model }], meta: { next_cursor: 'next==' } }
 const request = (path, body, method = 'POST') => ({ path, method, headers: auth, body: JSON.stringify(body) })
+const activityFilters = { key: '', from: '2026-10-01T00:00:00.000Z', to: '2026-10-02T00:00:00.000Z', cursor: '' }
 export default { cases: [
   { name: 'health', request: { path: '/health' }, expect: { status: 200, text: 'ok' } },
   { name: 'public-catalog-redacts-all-credentials', request: { path: '/api/bootstrap' }, kv: { state }, config: { ARC_MODE: 'preview' }, expect: { status: 200, json: { users: [{ id: user.id, name: user.name, models: [{ id: key.id, name: key.name, provider: key.provider, model: key.model }] }], mode: 'preview' } } },
@@ -50,4 +51,13 @@ export default { cases: [
   { name: 'failover-replace-with-empty', request: request('/api/admin/keys/key-1/failover', { targets: [], timeout_enabled: false, rate_limit_429_enabled: false, server_error_5xx_enabled: false }, 'PUT'), secrets, fetches: { [`PUT ${management}/keys/key-1/failover`]: { status: 200, json: {} } }, expect: { status: 200, text: 'Failover policy saved.' } },
   { name: 'failover-duplicate-target-rejected', request: request('/api/admin/keys/key-1/failover', { targets: [{ provider_connection_id: 'same' }, { provider_connection_id: 'same' }], timeout_enabled: true, rate_limit_429_enabled: false, server_error_5xx_enabled: true }, 'PUT'), secrets, expect: { status: 400 } },
   { name: 'failover-missing-triggers-rejected', request: request('/api/admin/keys/key-1/failover', { targets: [] }, 'PUT'), secrets, expect: { status: 502 } },
+  { name: 'activity-auth-required', request: { path: '/api/admin/activity/sessions', method: 'POST', body: JSON.stringify(activityFilters) }, secrets, expect: { status: 401 } },
+  { name: 'activity-preview-explicit', request: request('/api/admin/activity/sessions', activityFilters), secrets, config: { ARC_MODE: 'preview' }, expect: { status: 200, json: { data: [], meta: { total: 0, next_cursor: null, prev_cursor: null }, preview: true } } },
+  { name: 'activity-query-injection-rejected', request: request('/api/admin/activity/sessions', { ...activityFilters, key: '&limit=1000' }), secrets, expect: { status: 400 } },
+  { name: 'activity-inverted-range-rejected', request: request('/api/admin/activity/sessions', { ...activityFilters, from: activityFilters.to }), secrets, expect: { status: 400 } },
+  { name: 'activity-unknown-resource', request: request('/api/admin/activity/keys', activityFilters), secrets, expect: { status: 404 } },
+  { name: 'activity-missing-secret', request: request('/api/admin/activity/sessions', activityFilters), secrets: { ADMIN_PASSWORD: 'test-admin' }, expect: { status: 503 } },
+  { name: 'activity-metrics-live', request: request('/api/admin/activity/usage-metrics', activityFilters), secrets, fetches: { [`GET ${management}/usage-metrics?from=2026-10-01T00:00:00.000Z&to=2026-10-02T00:00:00.000Z&granularity=hourly&sort=-date`]: { status: 200, json: { data: [{ usage_type: 'requests', quantity: 3, date: '2026-10-01 00:00:00' }], meta: { total: 1 } } } }, expect: { status: 200 } },
+  { name: 'activity-cursor-page', request: request('/api/admin/activity/sessions', { ...activityFilters, cursor: 'next%3D%3D' }), secrets, fetches: { [`GET ${management}/sessions?from=2026-10-01T00:00:00.000Z&to=2026-10-02T00:00:00.000Z&limit=25&sort=-created_at&cursor=next%3D%3D`]: { status: 200, json: { data: [], meta: { next_cursor: null } } } }, expect: { status: 200 } },
+  { name: 'activity-access-denied', request: request('/api/admin/activity/sessions', activityFilters), secrets, fetches: { [`GET ${management}/sessions?from=2026-10-01T00:00:00.000Z&to=2026-10-02T00:00:00.000Z&limit=25&sort=-created_at&cursor=`]: { status: 403, json: { detail: 'private' } } }, expect: { status: 403 } },
 ] }

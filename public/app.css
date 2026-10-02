@@ -41,3 +41,28 @@
 @media (max-width: 700px) { .policy-cards { grid-template-columns: 1fr; } .policy-modal { padding: 18px; } .policy-fields { grid-template-columns: 1fr; gap: 0; } }
 .admin-layout > section { min-width: 0; }
 .target-order { width: 100%; font-size: 10px; color: var(--muted); }
+
+/* Activity: read-only ARC evidence, with content kept inside the panel. */
+.activity { padding: 18px 24px 24px; min-width: 0; }
+.activity-filters { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; }
+.activity-filters .field { flex: 1; min-width: 160px; margin: 0; }
+.activity-filters button { margin-bottom: 1px; }
+.activity section { margin-top: 28px; }
+.activity h3 { font-size: 17px; margin: 0 0 14px; }
+.activity-range, #activity-range { overflow-wrap: anywhere; }
+.metric-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.metric-card { background: var(--bg, #f6f5f0); border: 1px solid #e4e6dc; border-radius: 12px; padding: 16px; }
+.metric-card strong { display: block; font-size: 25px; margin-top: 8px; overflow-wrap: anywhere; }
+.session-card { border: 1px solid #e4e6dc; border-radius: 12px; margin-bottom: 10px; overflow-wrap: anywhere; }
+.session-card > summary { padding: 16px; cursor: pointer; }
+.session-heading { display: inline-block; vertical-align: middle; margin-right: 12px; max-width: 100%; }
+.session-card .badge { white-space: normal; }
+.session-detail { padding: 0 18px 18px; }
+.log-entry { margin-top: 16px; }
+.log-entry summary { cursor: pointer; }
+.log-entry pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; background: #f6f5f0; border-radius: 8px; padding: 12px; font-size: 12px; }
+#activity-pages { flex-wrap: wrap; margin-top: 16px; }
+@media (max-width: 650px) { .activity { padding: 18px 14px 18px; } .metric-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .activity-filters { align-items: stretch; } .activity-filters button { width: 100%; } }
+
+.session-heading .minor { display: block; margin-top: 4px; }
+.activity .minor { font-size: 12px; color: #737969; }
