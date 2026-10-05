@@ -17,5 +17,10 @@ output "kv_store_id" {
   value = fastly_kvstore.state.id
 }
 output "domain" {
-  value = var.domain
+  value = fastly_domain.arc.fqdn
+}
+
+output "domain_id" {
+  description = "Versionless domain ID, for adoption/import and domain management."
+  value       = fastly_domain.arc.id
 }

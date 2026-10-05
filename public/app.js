@@ -14,11 +14,15 @@ async function api(path, options = {}) {
   const response = await fetch(path, { ...options, cache: 'no-store', headers: { 'content-type': 'application/json', ...options.headers } })
   const text = await response.text()
   let body; try { body = JSON.parse(text) } catch { body = null }
-  if (!response.ok) {
+  if (!response.ok || body?.error) {
     const error = new Error(body?.error?.message || (typeof body?.error === 'string' ? body.error : `Request failed (${response.status}). Please try again.`))
     error.status = response.status; throw error
   }
   return body ?? text
+}
+function requireList(body, property, path) {
+  if (!body || !Array.isArray(body[property])) throw new Error(`Unexpected response from ${path}: expected a ${property} list. Restart the local server and reload.`)
+  return body
 }
 function showError(target, message) { target.replaceChildren(); const box = node('div', 'error'); box.setAttribute('role', 'alert'); box.append(node('span', '', message)); const close = node('button', '', 'Dismiss'); close.type = 'button'; close.onclick = () => target.replaceChildren(); box.append(close); target.append(box) }
 function inlineText(el, text) {
@@ -56,7 +60,7 @@ async function startChat() {
   function renderHistory() { $('#messages').replaceChildren(); $('#messages').hidden = !history.messages.length; $('#welcome').hidden = !!history.messages.length; for (const message of history.messages) appendTurn(message) }
   function switchUser() { userId = userSelect.value; $('#model').replaceChildren(); for (const key of catalog.users.find(u => u.id === userId)?.models || []) { const option = node('option', '', `${key.model} · ${key.name}`); option.value = key.id; $('#model').append(option) }; history = loadHistory(userId); avatar.textContent = initials(catalog.users.find(u => u.id === userId)?.name || ''); $('#chat-errors').replaceChildren(); renderHistory(); if (!$('#model').options.length) showError($('#chat-errors'), 'Assign a ready virtual key to this user in Admin.'); setBusy(false) }
   try {
-    catalog = await api('/api/bootstrap'); $('#connection').replaceChildren(node('span', 'status-dot'), document.createTextNode(catalog.mode === 'preview' ? 'Local preview · simulated responses' : 'ARC connection · live mode'))
+    catalog = requireList(await api('/api/bootstrap'), 'users', '/api/bootstrap'); $('#connection').replaceChildren(node('span', 'status-dot'), document.createTextNode(catalog.mode === 'preview' ? 'Local preview · simulated responses' : 'ARC connection · live mode'))
     for (const user of catalog.users) { const option = node('option', '', user.name); option.value = user.id; userSelect.append(option) }
     switchUser()
   } catch (error) { showError($('#chat-errors'), error.message); $('#connection').textContent = 'Connection unavailable' }
@@ -83,21 +87,21 @@ async function startChat() {
 let adminPassword = '', settings = { users: [] }, keys = [], catalog = { providers: [], connections: [] }, activeTab = 'users', nextCursor = '', adminBusy = false
 const adminApi = (path, options = {}) => api(`/api/admin/${path}`, { ...options, headers: { authorization: `Bearer ${adminPassword}` } })
 async function loadKeys(cursor = '') {
-  const page = await adminApi('keys/list', { method: 'POST', body: JSON.stringify({ cursor: encodeURIComponent(cursor) }) })
+  const page = requireList(await adminApi('keys/list', { method: 'POST', body: JSON.stringify({ cursor: encodeURIComponent(cursor) }) }), 'keys', '/api/admin/keys/list')
   keys = cursor ? [...keys, ...page.keys.filter(key => !keys.some(k => k.id === key.id))] : page.keys
   nextCursor = page.nextCursor
 }
 async function refreshAdmin() {
-  settings = await adminApi('users')
+  settings = requireList(await adminApi('users'), 'users', '/api/admin/users')
   await loadKeys()
-  catalog = await adminApi('catalog')
+  catalog = requireList(requireList(await adminApi('catalog'), 'providers', '/api/admin/catalog'), 'connections', '/api/admin/catalog')
 }
 async function startAdmin() {
   main.className = 'admin-main'
   main.innerHTML = `<section class="login"><div class="eyebrow">PLAYGROUND ADMIN</div><h1>Admin</h1><p class="subtext">Demo users and ARC virtual keys.</p><form id="login-form"><label class="field">Admin password<input type="password" id="password" autocomplete="current-password" required></label><div id="login-errors"></div><button class="primary" type="submit">Open admin</button></form></section>`
   $('#login-form').onsubmit = async event => {
     event.preventDefault(); const button = $('#login-form button'); button.disabled = true; adminPassword = $('#password').value
-    try { settings = await adminApi('users'); renderAdmin(); await reload() }
+    try { settings = requireList(await adminApi('users'), 'users', '/api/admin/users'); renderAdmin(); await reload() }
     catch (error) { adminPassword = ''; showError($('#login-errors'), error.message) }
     finally { button.disabled = false }
   }

@@ -84,3 +84,27 @@ succeeded after the normal registry checksum fetch timed out. Local
 environment forbids its Unix socket (`operation not permitted`). A credential-free
 GitHub workflow runs fmt, init and validate. No account plan, apply or deployment
 was run; DNS and downstream TLS are explicitly outside this configuration.
+
+## Stateful local preview and Domain Management — 2026-10-05
+
+- On beta.6, the diagnostic `pulse dev` runner returned the seeded users but
+  discarded a successful user PUT before the next GET. The exact browser
+  iterable errors were not reproduced on a clean Linux checkout.
+- `npm run dev` now builds and launches Fastly Wasm with the Fastly CLI/Viceroy,
+  using the existing preview seeds and bindings from `.pulse/config.ts`. User
+  changes survive requests/refreshes and reset on process restart. No live ARC
+  requests are enabled. Code changes require a restart.
+- The browser rejects missing/non-array user, key, and catalog lists, and
+  surfaces error payloads even with HTTP 200. It does not silently replace
+  malformed user data with an empty editable list.
+- Passed: typecheck, 48 Pulse harness cases, four browser API-boundary cases,
+  native build, the stateful local-preview CRUD/chat test, and the existing
+  Native Viceroy smoke test (Viceroy 0.21.1).
+- Terraform replaces the classic nested domain block with `fastly_domain`,
+  supported by the pinned provider 9.6.0. Formatting passed. The official
+  Linux provider archive matched a checksum already in the lockfile. Local
+  schema validation could not start its plugin because this workspace denies
+  Unix sockets; the Terraform CI workflow performs provider validation.
+- No browser automation, account plan/apply, provisioning, or deployment was
+  performed. Partial-apply recovery and existing-domain import are documented
+  in `terraform/README.md`.

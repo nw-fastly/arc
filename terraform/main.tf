@@ -38,10 +38,6 @@ resource "fastly_service_compute" "arc" {
   # Bootstrap configuration only. The CLI uploads the package and activates it.
   activate = false
 
-  domain {
-    name = var.domain
-  }
-
   backend {
     name                  = "arc_gateway"
     address               = "arc.fastly.app"
@@ -84,4 +80,11 @@ resource "fastly_service_compute" "arc" {
     # A CLI publication must not become a Terraform package removal/update.
     ignore_changes = [package]
   }
+}
+
+# Versionless domain management avoids the deprecated classic service-domain API.
+resource "fastly_domain" "arc" {
+  fqdn        = var.domain
+  service_id  = fastly_service_compute.arc.id
+  description = "ARC playground hostname managed by Terraform"
 }

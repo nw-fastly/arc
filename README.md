@@ -11,7 +11,7 @@ A small chat demo built with **Pulse Native on Fastly Compute**. ARC owns provid
 - Virtual credentials remain server-side. Neither public nor authenticated admin responses return their values.
 - The same native Compute service serves the UI and API.
 
-**Pulse compatibility:** Packages remain pinned to `1.0.0-beta.5`. A narrow Native-only declaration in `src/pulse-native-fetch.d.ts` types the schema-backed PATCH/PUT requests already verified by the Native harness and Viceroy. Remove it when the upstream fetch types include these verbs. General key metadata editing and deletion remain pass 1 follow-ups.
+**Pulse compatibility:** Packages are pinned to `1.0.0-beta.6`. A narrow Native-only declaration in `src/pulse-native-fetch.d.ts` types the schema-backed PATCH/PUT requests already verified by the Native harness and Viceroy. Remove it when the upstream fetch types include these verbs. General key metadata editing and deletion remain pass 1 follow-ups.
 
 ![ARC chat playground](docs/screenshots/chat.png)
 
@@ -19,7 +19,10 @@ A small chat demo built with **Pulse Native on Fastly Compute**. ARC owns provid
 
 ## Try locally
 
-Requires Node 22.14+ on the 22.x line or Node 24.x.
+Requires Node 22.14+ on the 22.x line or Node 24.x, plus the Fastly CLI
+or Viceroy on PATH. You can also set `VICEROY_BIN` or `PULSE_VICEROY_BIN`
+to a Viceroy executable. `npm run dev` builds and runs the actual Fastly Wasm
+in a local Viceroy process. It does not provision or deploy anything.
 
 ```sh
 npm ci --ignore-scripts
@@ -28,7 +31,14 @@ npm test
 npm run dev
 ```
 
-Open `http://127.0.0.1:8787`, then `/admin` with **`local-admin-only`**. Local fixtures include two users and two model-scoped keys. Alex can use both; Sam starts with one. Preview chat responses are visibly simulated. User CRUD and assignments work locally. Key creation and rotation return a clear setup message in preview mode and never call ARC. Restarting the dev process restores the fixture state.
+Open `http://127.0.0.1:8787`, then `/admin` with **`local-admin-only`**. Local fixtures include two users and two model-scoped keys. Alex can use both; Sam starts with one. Preview chat responses are visibly simulated. User CRUD and assignments work locally. Key creation and rotation return a clear setup message in preview mode and never call ARC. Restarting the dev process restores the fixture state. Restart `npm run dev`
+after changing code; this preview does not hot-reload.
+
+`npm run test:local` checks user creation, assignment, disable/delete, refresh
+persistence, and simulated chat against this same local server (build first).
+The optional `npm run dev:fixture` retains Pulse's diagnostic fixture runner;
+in beta.6 it reseeds KV for each request, so it is unsuitable for interactive
+user CRUD. The normal local preview keeps KV changes for the process lifetime.
 
 ## Connect ARC and deploy
 

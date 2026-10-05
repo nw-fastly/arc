@@ -9,14 +9,17 @@
   "scripts": {
     "assets": "node scripts/embed-assets.mjs",
     "doctor": "npm run assets && pulse doctor",
-    "dev": "npm run assets && pulse dev",
+    "dev": "npm run build && node scripts/dev-native.mjs",
     "test": "npm run assets && pulse test",
     "build": "npm run assets && pulse build",
     "deploy": "fastly compute publish",
     "typecheck": "tsc --noEmit",
     "test:native": "node tests/native-smoke.mjs",
     "test:activity": "node --test tests/activity.test.mjs",
-    "test:policies": "node --test tests/policies.test.mjs"
+    "test:policies": "node --test tests/policies.test.mjs",
+    "dev:fixture": "npm run assets && pulse dev",
+    "test:local": "node tests/local-preview.test.mjs",
+    "test:api": "node --test tests/frontend-api.test.mjs"
   },
   "dependencies": {
     "@pulse-compute/pulse": "1.0.0-beta.6",

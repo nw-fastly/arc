@@ -1,11 +1,14 @@
 # ARC infrastructure
 
-Terraform creates a Compute service, its two TLS backends, an empty KV Store,
+Terraform creates a Compute service, a versionless domain associated with it,
+its two TLS backends, an empty KV Store,
 a Secret Store, and a Config Store containing `ARC_MODE=live`. Resource links
 match `.pulse/config.ts`: `arc_state`, `arc_secrets`, and `arc_config`.
 Account-level store names use the configurable service-name prefix.
 
-The Fastly provider is pinned to 9.6.0. Terraform 1.7+ is required. Terraform
+The Fastly provider is pinned to 9.6.0. The hostname uses `fastly_domain`
+(`/domain-management/v1/domains`), not the deprecated nested classic
+service `domain` block. Terraform 1.7+ is required. Terraform
 owns infrastructure; the existing `npm run deploy` owns the Wasm package and
 activation. No package is built or published by Terraform, and no secret values
 are accepted as Terraform variables. Provider credentials come from
@@ -70,6 +73,7 @@ resources, import the service and each store by ID before planning:
 
 ```sh
 terraform -chdir=terraform import fastly_service_compute.arc SERVICE_ID
+terraform -chdir=terraform import fastly_domain.arc DOMAIN_ID
 terraform -chdir=terraform import fastly_configstore.config CONFIG_STORE_ID
 terraform -chdir=terraform import fastly_secretstore.secrets SECRET_STORE_ID
 terraform -chdir=terraform import fastly_kvstore.state KV_STORE_ID
@@ -79,6 +83,22 @@ Match names/domain to the existing resources and review the complete plan before
 applying. The Config Store entries resource owns its contents, including removal
 of other entries; only adopt a dedicated ARC store. KV data and secret values
 remain managed by the app/Fastly, never by Terraform.
+
+### Recover a failed classic-domain apply
+
+Keep your existing Terraform state: a failed apply can already have created the
+service and stores. Pull this fix and run a fresh plan/apply; Terraform reuses
+resources recorded in state and creates the hostname through Domain Management.
+If the hostname already exists there, import its UUID into `fastly_domain.arc`
+before planning (see command above). The UUID is a domain ID, not a service ID.
+Do not reimport or recreate resources that are already tracked.
+
+This changes domain ownership from a service-version block to an account-level
+resource. For an existing classic domain, migrate it to Domain Management in
+Fastly and import the resulting domain UUID before applying. Review any planned
+classic-domain removal; there is no automatic nested-block state move. Domain
+association is versionless and takes effect immediately, even with
+`activate = false`. This configuration still does not create DNS or TLS.
 
 Local state, tfvars and saved plans are ignored by git. Keep state durable and
 private, or configure your team's remote backend before first apply. Retain the
@@ -101,6 +121,7 @@ terraform -chdir=terraform validate
 These checks do not provision resources. An authenticated account plan/apply is
 still required to verify entitlement, domain availability and live deployment.
 
+- [Domain Management resource](https://registry.terraform.io/providers/fastly/fastly/9.6.0/docs/resources/domain)
 - [Compute service resource](https://registry.terraform.io/providers/fastly/fastly/9.6.0/docs/resources/service_compute)
 - [Config Store entries](https://registry.terraform.io/providers/fastly/fastly/9.6.0/docs/resources/configstore_entries)
 - [Secret Store](https://registry.terraform.io/providers/fastly/fastly/9.6.0/docs/resources/secretstore)
