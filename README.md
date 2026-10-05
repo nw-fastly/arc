@@ -102,7 +102,7 @@ The admin password lives only in page memory. App-generated admin and public met
 
 Conversation history is stored per user in browser-tab `sessionStorage`. Up to 20 messages, 8,000 characters each, and 24,000 characters total are forwarded. New conversation resets that user's context. The local session UUID is not forwarded; ARC session attribution remains deferred and does not block chat.
 
-Requests are buffered, non-streaming, with a 25-second upstream timeout. The adapter sends `{ model, messages, stream: false }` and expects text in `choices[0].message.content`. It does not assume every provider supports that wire format. Responses show model, elapsed time, and token usage only when returned. Markdown renders as a safe subset without raw HTML.
+Requests are buffered, non-streaming, with a 25-second upstream timeout. The adapter sends `{ model, messages, stream: false }`, qualifying the stored model as `provider/model` for gateway routing. An existing matching provider prefix is preserved; model IDs with other namespace slashes still receive the provider prefix. Provider/model metadata and virtual-key credentials come from server storage. The adapter expects text in `choices[0].message.content` and does not assume every provider supports that wire format. Responses show model, elapsed time, and token usage only when returned. Markdown renders as a safe subset without raw HTML.
 
 ## Routes
 

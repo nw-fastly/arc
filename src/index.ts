@@ -188,8 +188,9 @@ app.post('/api/chat', async (ctx) => {
   const vault = await ctx.kv<Credentials>('state').get('credentials-v2')
   let value = ''
   let model = ''
+  let provider = ''
   if (vault !== undefined) {
-    for (let i = 0; i < 100 && i < vault.keys.length; i++) { if (vault.keys[i].id === input.keyId) { value = vault.keys[i].value; model = vault.keys[i].model } }
+    for (let i = 0; i < 100 && i < vault.keys.length; i++) { if (vault.keys[i].id === input.keyId) { value = vault.keys[i].value; model = vault.keys[i].model; provider = vault.keys[i].provider } }
   }
   if (!value) return ctx.json({ error: 'This key needs to be created or rotated in Admin before use.' }, { status: 409, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
   let invalid = input.messages.length < 1 || input.messages.length > 20 || input.sessionId.length > 100
@@ -203,6 +204,15 @@ app.post('/api/chat', async (ctx) => {
   if (mode === 'preview') return ctx.text('{"choices":[{"message":{"role":"assistant","content":"**Local preview.**\\n\\nYour selected user and virtual key determine the model. Connect ARC to receive live responses."}}],"preview":true}', { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
   // Model and credential come from server storage, never a browser-supplied model.
   // The local session UUID is not sent; messages carry conversation context.
+  // Gateway routing requires provider/model; management stores them separately.
+  const prefix = `${provider}/`
+  // Key creation limits provider IDs to 150 characters. Compare explicitly
+  // because the native Pulse contract does not support String.startsWith.
+  let prefixed = prefix.length <= 151 && model.length >= prefix.length
+  for (let i = 0; i < 151 && i < prefix.length; i++) {
+    if (model[i] !== prefix[i]) prefixed = false
+  }
+  model = prefixed ? model : `${prefix}${model}`
   return ctx.fetch('https://arc.fastly.app/v1/chat/completions', { method: 'POST', timeoutMs: 25000, headers: { authorization: `Bearer ${value}`, 'content-type': 'application/json' }, json: { model, messages: input.messages, stream: false }, schema: 'arc.Completion' })
 })
 app.error(async (error, ctx, next) => ctx.json({ error: 'The request could not be completed. Reload the affected key or policy before retrying; ARC may already have processed the change.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } }))

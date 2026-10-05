@@ -60,7 +60,13 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
       res.statusCode = 201
       return res.end(JSON.stringify({ ...key, access_token: 'rotated-native-secret-' + ++rotations }))
     }
-    if (req.url === '/v1/chat/completions') return res.end(JSON.stringify({ model: input.model, choices: [{ message: { role: 'assistant', content: '**Hello from ARC.**\n\nThis is a controlled upstream fixture.' } }], usage: { total_tokens: 24 } }))
+    if (req.url === '/v1/chat/completions') {
+      if (!input.model.startsWith('fixture/')) {
+        res.statusCode = 400
+        return res.end(JSON.stringify({ error: { message: 'model must include provider prefix, ex: provider/model' } }))
+      }
+      return res.end(JSON.stringify({ model: input.model, choices: [{ message: { role: 'assistant', content: '**Hello from ARC.**\n\nThis is a controlled upstream fixture.' } }], usage: { total_tokens: 24 } }))
+    }
     res.statusCode = 404; res.end(JSON.stringify({ error: 'missing route' }))
   })
   await new Promise(resolve => origin.listen(0, '127.0.0.1', resolve))
@@ -135,7 +141,7 @@ async function smoke() {
     const chat = { userId: 'alex', keyId: 'key-2', model: 'untrusted-browser-model', messages: [{ role: 'user', content: 'Hello "world"\nUnicode: café' }], sessionId: 'local-session' }
     assert.equal((await call('/api/chat', chat)).status, 200)
     let outbound = seen.filter(r => r.path === '/v1/chat/completions').at(-1)
-    assert.equal(outbound.headers.authorization, 'Bearer created-native-secret'); assert.deepEqual(outbound.body, { model: 'fixture-other', messages: chat.messages, stream: false })
+    assert.equal(outbound.headers.authorization, 'Bearer created-native-secret'); assert.deepEqual(outbound.body, { model: 'fixture/fixture-other', messages: chat.messages, stream: false })
     assert.equal(outbound.headers['fastly-key'], undefined)
     const rotation = await call('/api/admin/keys/key-2/rotate', {}); assert.equal(rotation.status, 200); assert.equal(await rotation.text(), 'Key rotated and stored.')
     // A stale user snapshot cannot restore the pre-rotation credential.
@@ -156,6 +162,19 @@ async function smoke() {
     const failure = await call('/api/admin/keys/key-2/failover', { ...failover, targets: [{ provider_connection_id: 'unavailable-fixture' }] }, 'PUT'); assert.equal(failure.status, 503)
     assert.equal((await read(await call('/api/admin/keys/key-2/policy', undefined, 'GET'))).tpm_limit, 10000)
     assert.equal((await call('/api/chat', chat)).status, 200); assert.equal(seen.filter(r => r.path === '/v1/chat/completions').at(-1).headers.authorization, 'Bearer rotated-native-secret-1')
+    // Keep an existing matching provider prefix, but prefix raw model IDs that
+    // have their own namespace slash (e.g. vendor/model).
+    for (const model of ['fixture/vendor/model', 'vendor/model']) {
+      assert.equal((await call('/api/admin/keys', { name: model, provider: 'fixture', model })).status, 201)
+      const keys = await read(await call('/api/admin/keys/list', { cursor: '' }))
+      const key = keys.keys.find(key => key.name === model)
+      assert.equal(key.model, model, 'management metadata stays unchanged')
+      users.users[0].keyIds.push(key.id)
+      assert.equal((await call('/api/admin/users', users, 'PUT')).status, 200)
+      assert.equal((await call('/api/chat', { ...chat, keyId: key.id })).status, 200)
+      const outbound = seen.filter(r => r.path === '/v1/chat/completions').at(-1)
+      assert.equal(outbound.body.model, 'fixture/vendor/model')
+    }
     const before = seen.length
     assert.equal((await call('/api/chat', { ...chat, userId: 'sam' })).status, 403); assert.equal(seen.length, before)
     const disabled = { users: users.users.map(u => ({ ...u, active: false })) }

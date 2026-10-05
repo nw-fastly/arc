@@ -122,3 +122,20 @@ was run; DNS and downstream TLS are explicitly outside this configuration.
   missing-list rejection, and existing nonempty key CRUD/chat behavior.
 - Native checks used controlled upstream fixtures. No live account request,
   browser automation, or deployment was performed for this fix.
+
+## Gateway model routing — 2026-10-05
+
+- Chat sent the raw stored model ID, while the live gateway reported that the
+  model must include a provider prefix. A native fixture enforcing that rule
+  reproduced the old build's HTTP 400.
+- Chat now qualifies the model as `provider/model` using the selected key's
+  stored metadata. It preserves an existing matching provider prefix and
+  prefixes raw model IDs with their own namespace slash. Management metadata,
+  credentials, and preview behavior are unchanged; no KV migration is needed.
+- Passed: typecheck, 52 Pulse harness cases, native build, and Native Viceroy
+  smoke (0.21.1). Native checks assert outbound model formatting for plain,
+  already qualified, and namespaced model IDs and ignore a browser model
+  override while retaining credential/assignment checks.
+- This uses the current native string contract's bounded character comparison;
+  `String.startsWith` is not supported by beta.6 lowering. Native validation
+  used controlled upstream responses; no live call or deployment was performed.
