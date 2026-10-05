@@ -108,3 +108,17 @@ was run; DNS and downstream TLS are explicitly outside this configuration.
 - No browser automation, account plan/apply, provisioning, or deployment was
   performed. Partial-apply recovery and existing-domain import are documented
   in `terraform/README.md`.
+
+## Empty live ARC lists — 2026-10-05
+
+- The user reported a key-list response with `data: null` and
+  `meta: { limit: 100, sort: "created_at", total: 0 }`. The previous native
+  build reproduced the misleading key-list 502 against that exact payload.
+- Nullable key/provider/connection list schemas now preserve explicit null,
+  and handlers normalize it to empty arrays. Missing data remains an error.
+  The first key-list request also omits the empty cursor parameter.
+- Passed: typecheck, 52 Pulse harness cases, native build, and Native Viceroy
+  smoke (0.21.1), including the reported null payload, empty catalog lists,
+  missing-list rejection, and existing nonempty key CRUD/chat behavior.
+- Native checks used controlled upstream fixtures. No live account request,
+  browser automation, or deployment was performed for this fix.

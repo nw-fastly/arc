@@ -6,16 +6,16 @@ export interface Key { id: string; name: string; provider: string; model: string
 export interface Credential { id: string; name: string; provider: string; model: string; value: string }
 export interface Credentials { keys: Credential[] }
 export interface KeyResult { id?: string; name?: string; provider?: string; model?: string; access_token?: string }
-export interface KeyPage { data?: Key[]; meta?: { next_cursor?: string | null } }
+export interface KeyPage { data?: Key[] | null; meta?: { next_cursor?: string | null } }
 export interface KeyView { id: string; name: string; provider: string; model: string; ready: boolean }
 export interface Keys { keys: KeyView[]; nextCursor: string }
 export interface ActivityInput { key: string; from: string; to: string; cursor: string }
 export interface PageInput { cursor: string }
 export interface Model { id: string; display_name: string; provider_id: string }
 export interface Provider { id: string; display_name: string; models: Model[] }
-export interface Providers { data?: Provider[] }
+export interface Providers { data?: Provider[] | null }
 export interface Connection { id: string; name: string; models: string[]; auth_type: string }
-export interface Connections { data?: Connection[] }
+export interface Connections { data?: Connection[] | null }
 export interface Catalog { providers: Provider[]; connections: Connection[]; preview: boolean }
 export interface PublicUser { id: string; name: string; models: Key[] }
 export interface Bootstrap { users: PublicUser[]; mode: string }

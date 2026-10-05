@@ -15,6 +15,7 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
   const folder = await mkdtemp(join(tmpdir(), 'arc-native-'))
   let seen = [], logs = ''
   const activityControl = { metricsStatus: 200, sessionsStatus: 200, malformed: false }
+  const listControl = { keyPayload: undefined, emptyCatalog: false }
   const remoteKeys = [{ id: demoKey.id, name: demoKey.name, provider: demoKey.provider, model: demoKey.model }]
   let rotations = 0
   let failoverPolicy = { targets: [], timeout_enabled: false, rate_limit_429_enabled: false, server_error_5xx_enabled: false }
@@ -34,9 +35,9 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
       const query = new URL(req.url, 'http://fixture').searchParams, second = query.get('cursor') === 'next/+=', empty = query.get('key') === 'empty-key'
       return res.end(JSON.stringify({ data: empty ? [] : [{ id: second ? 'session-2' : 'session-1', virtual_key_id: 'key-1', virtual_key_name: 'Fast model', model: 'fixture-fast', primary_provider: 'conn-primary', provider: 'conn-actual', requests: 1, input_tokens: 512, output_tokens: 128, violations: 0, firewall_enabled: true, ...(second ? { firewall_outcome: '', firewall_stage: 'request' } : {}), created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-01T12:00:01Z', logs: [{ request: '<script>window.activityInjected=true</script>', response: 'Fixture response', attrs: { trace: 'demo' } }] }], meta: { total: empty ? 0 : 2, next_cursor: second || empty ? null : 'next/+=', prev_cursor: second ? 'start' : null } }))
     }
-    if (req.url === base + '/providers') return res.end(JSON.stringify({ data: [{ id: 'fixture', display_name: 'Fixture provider', models: [{ id: 'fixture-fast', display_name: 'Fast', provider_id: 'fixture' }, { id: 'fixture-other', display_name: 'Other', provider_id: 'fixture' }] }] }))
-    if (req.url === base + '/provider-connections') return res.end(JSON.stringify({ data: [{ id: 'conn-1', name: 'custom', models: ['custom-fast'], auth_type: 'api-key', secret_id: 'hidden' }] }))
-    if (req.method === 'GET' && req.url.startsWith(base + '/keys?')) return res.end(JSON.stringify({ data: remoteKeys, meta: { next_cursor: null } }))
+    if (req.url === base + '/providers') return res.end(JSON.stringify({ data: listControl.emptyCatalog ? null : [{ id: 'fixture', display_name: 'Fixture provider', models: [{ id: 'fixture-fast', display_name: 'Fast', provider_id: 'fixture' }, { id: 'fixture-other', display_name: 'Other', provider_id: 'fixture' }] }] }))
+    if (req.url === base + '/provider-connections') return res.end(JSON.stringify({ data: listControl.emptyCatalog ? null : [{ id: 'conn-1', name: 'custom', models: ['custom-fast'], auth_type: 'api-key', secret_id: 'hidden' }] }))
+    if (req.method === 'GET' && req.url.startsWith(base + '/keys?')) return res.end(JSON.stringify(listControl.keyPayload ?? { data: remoteKeys, meta: { next_cursor: null } }))
     if (req.method === 'POST' && req.url === base + '/keys') {
       const key = { id: 'key-' + (remoteKeys.length + 1), ...input }; remoteKeys.push(key); res.statusCode = 201
       return res.end(JSON.stringify({ ...key, access_token: 'created-native-secret' }))
@@ -84,7 +85,7 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
       await new Promise(resolve => setTimeout(resolve, 100))
     }
     if (!ready) throw new Error(`Viceroy startup timed out: ${logs}`)
-    return await callback({ base, seen, activityControl })
+    return await callback({ base, seen, activityControl, listControl })
   } catch (error) { console.error(logs); throw error } finally {
     processHandle.kill('SIGTERM')
     await new Promise(resolve => { if (processHandle.exitCode !== null) return resolve(); processHandle.once('exit', resolve); const timer = setTimeout(() => { processHandle.kill('SIGKILL'); resolve() }, 2000); timer.unref() })
@@ -92,7 +93,7 @@ export async function withNativeServer(callback, { mode = 'live', seed = false }
   }
 }
 async function smoke() {
-  await withNativeServer(async ({ base, seen }) => {
+  await withNativeServer(async ({ base, seen, listControl }) => {
     const auth = { authorization: 'Bearer local-admin-only', 'content-type': 'application/json' }
     const call = async (path, body, method = 'POST') => fetch(base + path, { method, headers: auth, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     const read = async response => { const text = await response.text(); assert.ok(!text.includes('native-secret') && !text.includes('native-test-key') && !text.includes('native-management-secret'), 'response must redact credentials'); return JSON.parse(text) }
@@ -101,6 +102,18 @@ async function smoke() {
       const response = await fetch(base + path); assert.equal(response.status, 200); assert.equal(await response.text(), await readFile(`public/${source}`, 'utf8'))
     }
     assert.equal((await fetch(base + '/api/admin/users')).status, 401)
+    // Exact empty-account response reported from the live ARC key-list endpoint.
+    listControl.keyPayload = { data: null, meta: { limit: 100, sort: 'created_at', total: 0 } }
+    const emptyKeys = await call('/api/admin/keys/list', { cursor: '' })
+    assert.equal(emptyKeys.status, 200); assert.deepEqual(await read(emptyKeys), { keys: [], nextCursor: '' })
+    assert.equal(seen.at(-1).path, '/ai-runtime-control/v1/keys?limit=100')
+    listControl.keyPayload = { error: 'denied' }
+    assert.equal((await call('/api/admin/keys/list', { cursor: '' })).status, 502)
+    listControl.keyPayload = undefined
+    listControl.emptyCatalog = true
+    const emptyCatalog = await call('/api/admin/catalog', undefined, 'GET')
+    assert.equal(emptyCatalog.status, 200); assert.deepEqual(await read(emptyCatalog), { providers: [], connections: [], preview: false })
+    listControl.emptyCatalog = false
     const discovery = await read(await call('/api/admin/catalog', undefined, 'GET'))
     assert.equal(discovery.providers[0].id, 'fixture'); assert.equal(JSON.stringify(discovery).includes('hidden'), false)
     const activityFilters = { key: '', from: '2026-10-01T00:00:00.000Z', to: '2026-10-02T00:00:00.000Z', cursor: '' }

@@ -77,7 +77,7 @@ app.get('/api/admin/catalog', async (ctx) => {
   const providers = await ctx.fetch('https://api.fastly.com/ai-runtime-control/v1/providers', { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<Providers>('arc.Providers')
   const connections = await ctx.fetch('https://api.fastly.com/ai-runtime-control/v1/provider-connections', { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<Connections>('arc.Connections')
   if (providers.data === undefined || connections.data === undefined) return ctx.json({ error: 'ARC discovery failed. Check the management token and account access.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
-  return ctx.json({ providers: providers.data, connections: connections.data, preview: false }, { schema: 'arc.Catalog', headers: { 'cache-control': 'no-store' } })
+  return ctx.json({ providers: providers.data === null ? [] : providers.data, connections: connections.data === null ? [] : connections.data, preview: false }, { schema: 'arc.Catalog', headers: { 'cache-control': 'no-store' } })
 })
 app.post('/api/admin/keys/list', async (ctx) => {
   const input = await ctx.req.json<PageInput>('arc.PageInput')
@@ -101,11 +101,14 @@ app.post('/api/admin/keys/list', async (ctx) => {
   }
   const token = await ctx.secret.get('FASTLY_API_TOKEN')
   if (!token) return ctx.json({ error: 'Configure FASTLY_API_TOKEN in the service Secret Store.' }, { status: 503, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
-  const page = await ctx.fetch(`https://api.fastly.com/ai-runtime-control/v1/keys?limit=100&cursor=${input.cursor}`, { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<KeyPage>('arc.KeyPage')
-  if (page.data === undefined) return ctx.json({ error: 'ARC key listing failed. Check the management token and account access.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  const cursorQuery = input.cursor ? `&cursor=${input.cursor}` : ''
+  const page = await ctx.fetch(`https://api.fastly.com/ai-runtime-control/v1/keys?limit=100${cursorQuery}`, { method: 'GET', headers: { 'Fastly-Key': token }, timeoutMs: 15000 }).json<KeyPage>('arc.KeyPage')
+  if (page.data === undefined) return ctx.json({ error: 'ARC key listing failed: the response did not contain a usable list.' }, { status: 502, schema: 'arc.Error', headers: { 'cache-control': 'no-store' } })
+  // ARC returns data: null for an empty account; missing data still means failure.
+  const items: Key[] = page.data === null ? [] : page.data
   const keys: KeyView[] = []
-  for (let i = 0; i < 100 && i < page.data.length; i++) {
-    const item = page.data[i]
+  for (let i = 0; i < 100 && i < items.length; i++) {
+    const item = items[i]
     let ready = false
     for (let j = 0; j < 100 && j < credentials.length; j++) {
       const key = credentials[j]
