@@ -139,3 +139,25 @@ was run; DNS and downstream TLS are explicitly outside this configuration.
 - This uses the current native string contract's bounded character comparison;
   `String.startsWith` is not supported by beta.6 lowering. Native validation
   used controlled upstream responses; no live call or deployment was performed.
+
+## Chat response rendering and scrolling — 2026-10-09
+
+- Sending previously rebuilt every turn and replayed entrance animations.
+  Replies then focused the composer, which could move the page. Chat now
+  retains existing turn nodes and replaces the waiting indicator in place.
+- The conversation scrolls within a viewport with a stable composer. When
+  following the latest turn, long replies reveal their beginning; scrolling
+  up while waiting preserves the reader's position. Restored history does
+  not animate, and asynchronous replies do not take focus. The prompt stays
+  editable during requests, and error recovery preserves a new draft.
+- Passed: JavaScript syntax, typecheck, four browser API-boundary cases,
+  52 Pulse harness cases, and the native Fastly build.
+- `tests/chat.browser.mjs` passed in Chromium at 1280×900 and 390×844,
+  plus desktop reduced motion. Checks cover long replies, composer stability,
+  no page overflow, retained DOM nodes, keyboard scrolling, reading-position
+  preservation, focus/drafts, error recovery, and conversation reset. Desktop
+  and mobile screenshots were visually reviewed.
+- Browser checks use the real public assets with controlled API responses.
+  Run with `PLAYWRIGHT_MODULE=… node tests/chat.browser.mjs`; optionally set
+  `CHROMIUM_BIN` for a custom browser executable. No live ARC request,
+  physical mobile-keyboard check, Viceroy smoke, or deployment was performed.

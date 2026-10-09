@@ -49,15 +49,39 @@ function loadHistory(id) { try { const v = JSON.parse(sessionStorage.getItem(`ar
 function saveHistory(id, history) { try { sessionStorage.setItem(`arc.chat.${id}`, JSON.stringify(history)) } catch {} }
 async function startChat() {
   main.className = 'chat-main'
-  main.innerHTML = `<div class="session-bar"><span class="status" id="connection"><span class="status-dot"></span>Connecting…</span><button class="text-button" id="new-chat" type="button">New conversation</button></div><section class="welcome" id="welcome"><div class="eyebrow">HOW IT WORKS</div><h1>Your request, end to end.</h1><ol class="overview-flow" aria-label="Request flow"><li><strong>Chat</strong><span>Your message</span></li><li><strong>Fastly Compute</strong><span>Pulse app</span></li><li class="flow-arc"><strong>ARC</strong><span>Virtual key · Limits<br>Routing · Failover</span></li><li><strong>AI provider</strong><span>Model response</span></li></ol><div class="suggestions" id="suggestions" role="group" aria-label="Suggested prompts"></div></section><section class="messages" id="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text" hidden></section><div id="chat-errors"></div><div class="composer-wrap"><form class="composer" id="chat-form"><label class="sr-only" for="prompt">Message</label><textarea id="prompt" rows="2" maxlength="8000" placeholder="What's on your mind?" required></textarea><div class="composer-bottom"><div class="model-wrap"><span class="model-dot"></span><label class="sr-only" for="model">Model</label><select id="model" disabled><option>Loading models…</option></select></div><button class="send" id="send" type="submit" disabled>Send message</button></div></form><div class="composer-footer"><span class="hint">Enter to send · Shift + Enter for a new line</span><span class="powered">Powered by <strong>Fastly</strong> · Built with Pulse</span></div></div>`
+  main.closest('.shell').classList.add('chat-shell')
+  main.innerHTML = `<div class="session-bar"><span class="status" id="connection"><span class="status-dot"></span>Connecting…</span><button class="text-button" id="new-chat" type="button">New conversation</button></div><div class="conversation-scroll" id="conversation-scroll" tabindex="0" role="region" aria-label="Chat history"><section class="welcome" id="welcome"><div class="eyebrow">HOW IT WORKS</div><h1>Your request, end to end.</h1><ol class="overview-flow" aria-label="Request flow"><li><strong>Chat</strong><span>Your message</span></li><li><strong>Fastly Compute</strong><span>Pulse app</span></li><li class="flow-arc"><strong>ARC</strong><span>Virtual key · Limits<br>Routing · Failover</span></li><li><strong>AI provider</strong><span>Model response</span></li></ol><div class="suggestions" id="suggestions" role="group" aria-label="Suggested prompts"></div></section><section class="messages" id="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text" hidden></section></div><div id="chat-errors"></div><div class="composer-wrap"><form class="composer" id="chat-form"><label class="sr-only" for="prompt">Message</label><textarea id="prompt" rows="2" maxlength="8000" placeholder="What's on your mind?" required></textarea><div class="composer-bottom"><div class="model-wrap"><span class="model-dot"></span><label class="sr-only" for="model">Model</label><select id="model" disabled><option>Loading models…</option></select></div><button class="send" id="send" type="submit" disabled>Send message</button></div></form><div class="composer-footer"><span class="hint">Enter to send · Shift + Enter for a new line</span><span class="powered">Powered by <strong>Fastly</strong> · Built with Pulse</span></div></div>`
   $('#new-chat').prepend(icon('plus', 13)); $('#send').append(icon('arrow'))
   const prompts = [['pen', 'Write something', 'Help me write a warm welcome note for a new teammate.'], ['spark', 'Explore an idea', 'Explain an interesting idea I can learn in two minutes.'], ['code', 'Build something', 'Show me a small, useful JavaScript function and explain how it works.']]
   for (const [symbol, title, prompt] of prompts) { const button = node('button', 'suggestion', title); button.type = 'button'; button.prepend(icon(symbol, 13)); button.onclick = () => { $('#prompt').value = prompt; $('#prompt').focus() }; $('#suggestions').append(button) }
+  const viewport = $('#conversation-scroll'), messages = $('#messages'), prompt = $('#prompt')
+  const nearBottom = () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80
+  function revealReply(turn) {
+    requestAnimationFrame(() => {
+      if (!turn.isConnected) return
+      const top = viewport.scrollTop + turn.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 16
+      viewport.scrollTo({ top: Math.max(0, top), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    })
+  }
   let catalog, userId = '', history, busy = false
   const userSelect = node('select'); userSelect.id = 'user'; userSelect.setAttribute('aria-label', 'Demo user'); const avatar = node('span', 'avatar', '…'); const picker = node('div', 'user-picker'); picker.append(avatar, userSelect); $('#header-control').append(picker)
-  const setBusy = value => { busy = value; $('#send').disabled = value || !userId || !$('#model').value; $('#model').disabled = value || !$('#model').options.length; userSelect.disabled = value; $('#new-chat').disabled = value; $('#prompt').disabled = value; $('#suggestions').querySelectorAll('button').forEach(button => { button.disabled = value }) }
-  function appendTurn(message) { const turn = node('article', `turn ${message.role}`); const a = node('div', 'avatar', message.role === 'user' ? initials(catalog.users.find(u => u.id === userId)?.name || 'You') : ''); if (message.role === 'assistant') a.append(icon('spark', 15)); const bubble = node('div', 'bubble'); if (message.role === 'assistant') markdown(bubble, message.content); else bubble.append(node('p', '', message.content)); if (message.meta) bubble.append(node('div', 'turn-meta', message.meta)); turn.append(a, bubble); $('#messages').append(turn) }
-  function renderHistory() { $('#messages').replaceChildren(); $('#messages').hidden = !history.messages.length; $('#welcome').hidden = !!history.messages.length; for (const message of history.messages) appendTurn(message) }
+  const setBusy = value => { busy = value; $('#send').disabled = value || !userId || !$('#model').value; $('#model').disabled = value || !$('#model').options.length; userSelect.disabled = value; $('#new-chat').disabled = value; $('#suggestions').querySelectorAll('button').forEach(button => { button.disabled = value }) }
+  function createTurn(message, restored = false) {
+    const turn = node('article', `turn ${message.role}${restored ? ' restored' : ''}`)
+    const a = node('div', 'avatar', message.role === 'user' ? initials(catalog.users.find(u => u.id === userId)?.name || 'You') : '')
+    if (message.role === 'assistant') a.append(icon('spark', 15))
+    const bubble = node('div', 'bubble')
+    if (message.role === 'assistant') markdown(bubble, message.content)
+    else bubble.append(node('p', '', message.content))
+    if (message.meta) bubble.append(node('div', 'turn-meta', message.meta))
+    turn.append(a, bubble)
+    return turn
+  }
+  function renderHistory() {
+    messages.replaceChildren(); messages.hidden = !history.messages.length; $('#welcome').hidden = !!history.messages.length
+    for (const message of history.messages) messages.append(createTurn(message, true))
+    viewport.scrollTop = viewport.scrollHeight
+  }
   function switchUser() { userId = userSelect.value; $('#model').replaceChildren(); for (const key of catalog.users.find(u => u.id === userId)?.models || []) { const option = node('option', '', `${key.model} · ${key.name}`); option.value = key.id; $('#model').append(option) }; history = loadHistory(userId); avatar.textContent = initials(catalog.users.find(u => u.id === userId)?.name || ''); $('#chat-errors').replaceChildren(); renderHistory(); if (!$('#model').options.length) showError($('#chat-errors'), 'Assign a ready virtual key to this user in Admin.'); setBusy(false) }
   try {
     catalog = requireList(await api('/api/bootstrap'), 'users', '/api/bootstrap'); $('#connection').replaceChildren(node('span', 'status-dot'), document.createTextNode(catalog.mode === 'preview' ? 'Local preview · simulated responses' : 'ARC connection · live mode'))
@@ -65,23 +89,29 @@ async function startChat() {
     switchUser()
   } catch (error) { showError($('#chat-errors'), error.message); $('#connection').textContent = 'Connection unavailable' }
   userSelect.onchange = switchUser
-  $('#new-chat').onclick = () => { if (history?.messages.length && !confirm('Clear this user’s conversation in this browser tab?')) return; history = { sessionId: crypto.randomUUID(), messages: [] }; saveHistory(userId, history); renderHistory(); $('#prompt').focus() }
+  $('#new-chat').onclick = () => { if (history?.messages.length && !confirm('Clear this user’s conversation in this browser tab?')) return; history = { sessionId: crypto.randomUUID(), messages: [] }; saveHistory(userId, history); $('#chat-errors').replaceChildren(); renderHistory(); prompt.focus({ preventScroll: true }) }
   $('#prompt').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!busy && !$('#send').disabled) $('#chat-form').requestSubmit() } })
   $('#chat-form').onsubmit = async event => {
     event.preventDefault(); const content = $('#prompt').value.trim(); if (busy || !content || !userId) return
     $('#chat-errors').replaceChildren(); const keyId = $('#model').value; const model = catalog.users.find(u => u.id === userId)?.models.find(k => k.id === keyId)?.model || ''; const prior = history.messages.slice(-18).map(({ role, content }) => ({ role, content })); const outgoing = [...prior, { role: 'user', content }]
     if (outgoing.reduce((n, m) => n + m.content.length, 0) > 24000) { showError($('#chat-errors'), 'This conversation is full. Start a new conversation to continue.'); return }
-    setBusy(true); history.messages.push({ role: 'user', content }); renderHistory(); $('#prompt').value = ''
-    const loading = node('div', 'turn assistant'); loading.setAttribute('role', 'status'); loading.setAttribute('aria-label', 'Waiting for response'); const dots = node('div', 'typing'); dots.append(node('span'), node('span'), node('span')); loading.append(node('div', 'avatar', '·'), dots); $('#messages').append(loading); loading.scrollIntoView({ block: 'nearest' }); const start = performance.now()
+    setBusy(true); history.messages.push({ role: 'user', content }); messages.hidden = false; $('#welcome').hidden = true
+    const userTurn = createTurn(history.messages.at(-1)); messages.append(userTurn); prompt.value = ''
+    const loading = node('div', 'turn assistant'); loading.setAttribute('role', 'status'); loading.setAttribute('aria-label', 'Waiting for response'); const dots = node('div', 'typing'); dots.append(node('span'), node('span'), node('span')); loading.append(node('div', 'avatar', '·'), dots); messages.append(loading); messages.setAttribute('aria-busy', 'true'); viewport.scrollTop = viewport.scrollHeight; const start = performance.now()
     try {
       const response = await api('/api/chat', { method: 'POST', body: JSON.stringify({ userId, keyId, messages: outgoing, sessionId: history.sessionId }), signal: AbortSignal.timeout(30000) })
       const answer = response?.choices?.[0]?.message?.content
       if (typeof answer !== 'string' || !answer) throw new Error('The endpoint did not return a chat-completions response. Check its URL and model configuration.')
       const parts = [response.preview ? 'Simulated response' : (response.model || model), `${((performance.now() - start) / 1000).toFixed(1)}s`]
       if (response.usage && Number.isFinite(response.usage.total_tokens)) parts.push(`${response.usage.total_tokens} tokens`)
-      const message = { role: 'assistant', content: answer, meta: parts.join(' · ') }; history.messages.push(message); saveHistory(userId, history); loading.remove(); appendTurn(message)
-    } catch (error) { history.messages.pop(); renderHistory(); $('#prompt').value = content; showError($('#chat-errors'), error.name === 'TimeoutError' ? 'The request timed out. You can try again; ARC may already have processed it.' : error.message) }
-    finally { loading.remove(); setBusy(false); $('#prompt').focus() }
+      const message = { role: 'assistant', content: answer, meta: parts.join(' · ') }; history.messages.push(message); saveHistory(userId, history)
+      const follow = nearBottom(), reply = createTurn(message); loading.replaceWith(reply)
+      if (follow) revealReply(reply)
+    } catch (error) {
+      history.messages.pop(); userTurn.remove(); loading.remove(); messages.hidden = !history.messages.length; $('#welcome').hidden = !!history.messages.length
+      if (!prompt.value) prompt.value = content
+      showError($('#chat-errors'), error.name === 'TimeoutError' ? 'The request timed out. You can try again; ARC may already have processed it.' : error.message)
+    } finally { loading.remove(); messages.setAttribute('aria-busy', 'false'); setBusy(false) }
   }
 }
 let adminPassword = '', settings = { users: [] }, keys = [], catalog = { providers: [], connections: [] }, activeTab = 'users', nextCursor = '', adminBusy = false
