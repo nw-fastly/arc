@@ -11,8 +11,9 @@ there is no consumer release tag or provider deployment.
   and captures approved `main` pushes for future exact-baseline reuse. The
   Fastly Native profile uses the existing npm lockfile and ignored asset generator.
 - `.github/workflows/pulse-report-publisher.yml` runs from the default branch
-  after capture completes. It begins with `dry_run: true`; it validates evidence
-  and writes a job summary without posting a PR comment.
+  after capture completes. Installation began with `dry_run: true`. The follow-up
+  enablement PR proposes `dry_run: false`; until that PR is merged, the trusted
+  default-branch workflow continues to validate without posting a PR comment.
 - `.github/pulse-report-publisher.json` binds the expected profile, provider,
   dependency recipe, toolchain and exact capture-tooling revision. The capture
   workflow pins Node 24.18.0; its actual Node/npm identity must match this policy.
@@ -21,10 +22,12 @@ there is no consumer release tag or provider deployment.
 - Comparison explicitly opts into the pinned internal beta.10 adapter for
   validation while the supported public interface in Pulse #503 awaits release.
 
-Capture should execute on the installation PR before merge. The publisher can
-only execute once its workflow and policy are on the default branch. After human
-merge, use a fresh PR to check dry-run admission, then review a separate change
-to `dry_run: false` before claiming live bot-comment delivery.
+Capture executed on the installation PR before merge. The publisher workflow
+and policy are now installed on the default branch. The enablement PR is also
+the fresh dry-run qualification input: the publisher reads its mode and policy
+from the trusted default branch, so the PR cannot enable its own comment write.
+Review the completed dry-run admission before merging enablement; live
+bot-comment delivery still requires a subsequent completed PR capture.
 
 ## Evidence and privacy
 
@@ -55,7 +58,25 @@ settings or deploy/provision anything as part of report validation.
 
 ## Qualification status
 
-Installation prepared; hosted capture and comparison validation are pending.
-Default-branch publisher admission and live bot-comment delivery are not yet
-qualified. Broader RA-04 cases, including pnpm, monorepos, external forks and
-stale-completion races, remain separate qualification obligations.
+The installation is merged. Its PR capture and comparison completed successfully
+in [run 39912072721](https://github.com/nw/arc/actions/runs/39912072721), attempt 1,
+for head `97445869b6e94c5eef1c28dad6f8593a964a81d9` and exact merge-base
+`3c5eba8a68c31b6272908f5f634d807fe8268440`. Existing application checks also passed.
+
+- Head artifact `12483296703`, archive SHA-256
+  `ea8fa3290cd600fa546c73275163586dc2b7ef98f4ca720c63704cf2ea5f1117`.
+- Comparison artifact `12483825227`, archive SHA-256
+  `0aaa4d956f843066a37595e58b591a4df5eec4fd84ae887159cb8ef0804d6c5b`.
+- Downloaded archives passed digest checks, bounded extraction, file inventories,
+  exact source/run/attempt/recipe checks and comparison receipt admission. The
+  comparison is compatible and binds seven evidence files. It rebuilt the exact
+  baseline because no approved-push capture existed at that point.
+- Actual capture Node `v24.18.0` and npm `11.16.0` match the trusted publisher
+  policy. A deliberate comparison-file byte mutation was rejected; original
+  bytes were restored and reverified.
+
+These automation/documentation changes do not qualify application runtime
+behavior or performance. Fresh approved-push retention, default-branch publisher
+dry-run admission, offline browser interaction and live bot-comment delivery
+remain to be verified. Broader RA-04 cases, including pnpm, monorepos, external
+forks and stale-completion races, remain separate qualification obligations.

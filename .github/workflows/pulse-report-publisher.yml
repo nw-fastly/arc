@@ -12,5 +12,5 @@ jobs:
     uses: pulse-compute/report-action/.github/workflows/publish.yml@0408c9c4393f9ba889c5f371ea803105535d31a5
     with:
       policy_path: .github/pulse-report-publisher.json
-      # Review default-branch admission before enabling the bot comment.
-      dry_run: true
+      # Enable only after the default-branch dry-run admission is reviewed.
+      dry_run: false
