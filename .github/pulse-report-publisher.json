@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "pulse.report-action.publisher-policy.v1",
+  "captureWorkflow": ".github/workflows/pulse-reports.yml",
+  "tooling": {
+    "repository": "pulse-compute/report-action",
+    "workflow": ".github/workflows/reports.yml",
+    "revision": "0408c9c4393f9ba889c5f371ea803105535d31a5"
+  },
+  "inputs": {
+    "profiles": [
+      "fastly"
+    ],
+    "package_manager": "npm",
+    "install_directory": ".",
+    "pulse_version": "1.0.0-beta.10",
+    "baseline_branch": "main",
+    "setup_command": "npm run assets",
+    "compare_internal_beta10": true
+  },
+  "providers": {
+    "fastly": "fastly"
+  },
+  "nodeVersion": "v24.18.0",
+  "npmVersion": "11.16.0"
+}

@@ -1,0 +1,20 @@
+name: Pulse reports
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  reports:
+    uses: pulse-compute/report-action/.github/workflows/reports.yml@0408c9c4393f9ba889c5f371ea803105535d31a5
+    with:
+      profiles: '["fastly"]'
+      package_manager: npm
+      install_directory: '.'
+      pulse_version: 1.0.0-beta.10
+      baseline_branch: main
+      setup_command: npm run assets
+      # Validation-only internal adapter; replace after Pulse #503 is released.
+      compare_internal_beta10: true
