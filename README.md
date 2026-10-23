@@ -11,7 +11,7 @@ A small chat demo built with **Pulse Native on Fastly Compute**. ARC owns provid
 - Virtual credentials remain server-side. Neither public nor authenticated admin responses return their values.
 - The same native Compute service serves the UI and API.
 
-**Pulse compatibility:** Packages are pinned to `1.0.0-beta.6`. A narrow Native-only declaration in `src/pulse-native-fetch.d.ts` types the schema-backed PATCH/PUT requests already verified by the Native harness and Viceroy. Remove it when the upstream fetch types include these verbs. General key metadata editing and deletion remain pass 1 follow-ups.
+**Pulse compatibility:** The CLI, Pulse, runtime and Fastly provider are pinned together to `1.0.0-beta.10`. Its runtime fetch declarations still omit PATCH/PUT, so the narrow Native-only declaration in `src/pulse-native-fetch.d.ts` remains necessary for the schema-backed requests used here. Typecheck, the Pulse project harness and the Native Fastly build are rechecked for this upgrade; prior Viceroy/browser evidence is recorded separately. Remove the declaration when upstream types include these verbs. General key metadata editing and deletion remain pass 1 follow-ups.
 
 ![ARC chat playground](docs/screenshots/chat.png)
 
@@ -37,8 +37,8 @@ after changing code; this preview does not hot-reload.
 `npm run test:local` checks user creation, assignment, disable/delete, refresh
 persistence, and simulated chat against this same local server (build first).
 The optional `npm run dev:fixture` retains Pulse's diagnostic fixture runner;
-in beta.6 it reseeds KV for each request, so it is unsuitable for interactive
-user CRUD. The normal local preview keeps KV changes for the process lifetime.
+its interactive behavior is not requalified by this beta.10 upgrade. The normal
+local preview keeps KV changes for the process lifetime.
 
 ## Connect ARC and deploy
 
@@ -133,7 +133,7 @@ npm run build
 VICEROY_BIN=/path/to/viceroy npm run test:native
 ```
 
-Pulse packages remain pinned to the published `1.0.0-beta.5` release. `public/` is frontend source; `scripts/embed-assets.mjs` generates static routes. Edit source assets, not generated files. See [validation](docs/validation.md) for executed checks and the Native typing compatibility boundary.
+Pulse packages are pinned together to the published `1.0.0-beta.10` release. `public/` is frontend source; `scripts/embed-assets.mjs` generates static routes. Edit source assets, not generated files. See [validation](docs/validation.md) for executed checks and the Native typing compatibility boundary.
 
 ## Activity
 

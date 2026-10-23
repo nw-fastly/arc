@@ -1,5 +1,32 @@
 # ARC validation
 
+## Pulse beta.10 upgrade
+
+The CLI, Pulse, runtime and Fastly provider are pinned together to
+`1.0.0-beta.10`, with the npm lockfile refreshed for the same release. The app
+continues to use `host: fastly`, `target: native`.
+
+Executed locally with Node 24.19.0 and npm 11.9.0:
+
+- Clean `npm ci --ignore-scripts --no-audit --no-fund` and asset generation passed.
+- Typecheck passed with the existing Native fetch declaration. Removing that
+  declaration still produces two errors for PATCH/PUT in `src/policies.ts`;
+  beta.10's upstream fetch declarations continue to list only GET/HEAD/POST.
+- All **52 Pulse project harness cases** passed, along with **4 frontend API,
+  6 activity and 10 policy tests**.
+- Native Fastly build passed and emitted `dist/bin/main.wasm`.
+- The public `pulse report . --profile fastly --json` and
+  `pulse report . --profile fastly --html --out .pulse/reports/beta10-upgrade.html`
+  commands passed after the final build. The JSON identified beta.10 and the
+  Fastly Native profile; the standalone HTML included its embedded report data.
+  Generated evidence remains ignored and local to this private project.
+
+The sections below record earlier implementation checks. No Viceroy, browser,
+stateful-preview or live-account checks were rerun for this dependency upgrade.
+This establishes a candidate beta.10 baseline; it does not claim report-action
+end-to-end qualification. No deployment, provisioning, merge or repository
+settings change was performed.
+
 ## Pass 3: Activity
 
 Read-only Activity adds time/key filters, request/session/input/output totals and paginated session logs with provider and firewall metadata. Refresh fixes a new UTC window and resets pagination. Raw logs render as text, are not persisted, and leave the DOM when admin is locked. Metrics and sessions have separate loading, empty and error states; preview is explicit. Successful bodies and headers pass through from ARC, preserving optional firewall fields and arbitrary log attributes.
