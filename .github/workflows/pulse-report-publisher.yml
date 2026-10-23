@@ -9,7 +9,7 @@ permissions:
   pull-requests: write
 jobs:
   publish:
-    uses: pulse-compute/report-action/.github/workflows/publish.yml@0408c9c4393f9ba889c5f371ea803105535d31a5
+    uses: pulse-compute/report-action/.github/workflows/publish.yml@1859f9d749d9702fb0597e2b1eedda9b9bcedb57
     with:
       policy_path: .github/pulse-report-publisher.json
       # Enable only after the default-branch dry-run admission is reviewed.

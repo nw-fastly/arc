@@ -4,7 +4,7 @@
   "tooling": {
     "repository": "pulse-compute/report-action",
     "workflow": ".github/workflows/reports.yml",
-    "revision": "0408c9c4393f9ba889c5f371ea803105535d31a5"
+    "revision": "1859f9d749d9702fb0597e2b1eedda9b9bcedb57"
   },
   "inputs": {
     "profiles": [

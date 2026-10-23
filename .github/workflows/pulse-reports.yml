@@ -8,7 +8,7 @@ permissions:
   actions: read
 jobs:
   reports:
-    uses: pulse-compute/report-action/.github/workflows/reports.yml@0408c9c4393f9ba889c5f371ea803105535d31a5
+    uses: pulse-compute/report-action/.github/workflows/reports.yml@1859f9d749d9702fb0597e2b1eedda9b9bcedb57
     with:
       profiles: '["fastly"]'
       package_manager: npm
